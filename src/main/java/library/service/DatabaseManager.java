@@ -440,6 +440,14 @@ public class DatabaseManager {
         return reservations;
     }
 
+    public Reservation findReservationById(int reservationId) {
+        List<Map<String, Object>> rows = database.query("SELECT * FROM reservations WHERE id = ?", reservationId);
+        if (rows.isEmpty()) {
+            return null;
+        }
+        return toReservation(rows.get(0));
+    }
+
     public List<Reservation> findReservationsByUser(int userId) {
         List<Map<String, Object>> rows = database.query("SELECT * FROM reservations WHERE user_id = ?", userId);
         List<Reservation> reservations = new ArrayList<>();
@@ -463,18 +471,46 @@ public class DatabaseManager {
     }
 
     public void cancelReservation(int reservationId) {
+        Reservation reservation = findReservationById(reservationId);
+        if (reservation == null) {
+            return;
+        }
         database.update("UPDATE reservations SET status = ? WHERE id = ?", "CANCELLED", reservationId);
+        if (reservation.isApproved()) {
+            incrementAvailableCopies(reservation.getBookId());
+        }
         notifyChange("reservations");
     }
 
     public void approveReservation(int reservationId) {
+        Reservation reservation = findReservationById(reservationId);
+        if (reservation == null) {
+            throw new IllegalArgumentException("Không tìm thấy yêu cầu đặt trước với id=" + reservationId);
+        }
+        if (!reservation.isPending()) {
+            return;
+        }
+        Book book = findBookById(reservation.getBookId());
+        if (book == null) {
+            throw new IllegalStateException("Không tìm thấy sách tương ứng");
+        }
+        if (book.getAvailableCopies() <= 0) {
+            throw new IllegalStateException("Không còn bản sao khả dụng để đặt trước");
+        }
         database.update("UPDATE reservations SET status = ? WHERE id = ?", "APPROVED", reservationId);
+        decrementAvailableCopies(book.getId());
         notifyChange("reservations");
     }
 
     public void rejectReservation(int reservationId) {
-        database.update("UPDATE reservations SET status = ? WHERE id = ?", "REJECTED", reservationId);
-        notifyChange("reservations");
+        Reservation reservation = findReservationById(reservationId);
+        if (reservation == null) {
+            return;
+        }
+        if (reservation.isPending()) {
+            database.update("UPDATE reservations SET status = ? WHERE id = ?", "REJECTED", reservationId);
+            notifyChange("reservations");
+        }
     }
 
     public void fulfilReservation(int reservationId) {

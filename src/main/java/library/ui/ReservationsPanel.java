@@ -146,14 +146,22 @@ public class ReservationsPanel extends VBox {
             return;
         }
         int approved = 0;
+        List<String> errors = new ArrayList<>();
         for (ReservationRow row : rows) {
             if (row.reservation().isPending()) {
-                libraryService.approveReservation(row.reservation().getId());
-                approved++;
+                try {
+                    libraryService.approveReservation(row.reservation().getId());
+                    approved++;
+                } catch (RuntimeException exception) {
+                    errors.add("#" + row.reservation().getId() + ": " + exception.getMessage());
+                }
             }
         }
         if (approved > 0) {
             showInfo("Đã duyệt", "Đã chấp nhận " + approved + " yêu cầu đặt trước.");
+        }
+        if (!errors.isEmpty()) {
+            showWarning("Không thể duyệt một số yêu cầu", String.join("\n", errors));
         }
         handleRefresh();
     }
@@ -223,6 +231,12 @@ public class ReservationsPanel extends VBox {
 
     private void showInfo(String header, String message) {
         Alert alert = new Alert(Alert.AlertType.INFORMATION, message);
+        alert.setHeaderText(header);
+        alert.showAndWait();
+    }
+
+    private void showWarning(String header, String message) {
+        Alert alert = new Alert(Alert.AlertType.WARNING, message);
         alert.setHeaderText(header);
         alert.showAndWait();
     }
