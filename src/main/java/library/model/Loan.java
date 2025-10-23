@@ -65,7 +65,19 @@ public class Loan {
     }
 
     public boolean isActive() {
-        return "BORROWED".equalsIgnoreCase(status);
+        return "BORROWED".equalsIgnoreCase(status) || "OVERDUE".equalsIgnoreCase(status);
+    }
+
+    public boolean isPending() {
+        return "PENDING".equalsIgnoreCase(status);
+    }
+
+    public boolean isReturned() {
+        return "RETURNED".equalsIgnoreCase(status);
+    }
+
+    public boolean isRejected() {
+        return "REJECTED".equalsIgnoreCase(status);
     }
 
     public double getDailyFee() {

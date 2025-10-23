@@ -3,6 +3,8 @@ package library.ui;
 import javafx.beans.property.SimpleBooleanProperty;
 import javafx.beans.property.SimpleStringProperty;
 import javafx.collections.FXCollections;
+import javafx.collections.ObservableList;
+import javafx.collections.transformation.FilteredList;
 import javafx.geometry.Insets;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
@@ -21,6 +23,10 @@ import java.io.File;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Objects;
+import java.util.Locale;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.stream.Collectors;
 
 public class UserDashboardView {
     private final User currentUser;
@@ -30,6 +36,13 @@ public class UserDashboardView {
     private final TableView<Book> bookTable = new TableView<>();
     private final TableView<Loan> loanTable = new TableView<>();
     private ReservationsPanel reservationsPanel;
+
+    private final ObservableList<Book> masterBooks = FXCollections.observableArrayList();
+    private final FilteredList<Book> filteredBooks = new FilteredList<>(masterBooks);
+    private TextField titleFilterField;
+    private TextField authorFilterField;
+    private ComboBox<String> categoryFilterBox;
+    private CheckBox availableFilterCheck;
 
     public UserDashboardView(User currentUser, LibraryService libraryService, Runnable onLogout) {
         this.currentUser = Objects.requireNonNull(currentUser);
@@ -73,12 +86,17 @@ public class UserDashboardView {
     }
 
     private Tab createBooksTab() {
+        TableColumn<Book, String> idColumn = new TableColumn<>("Mã");
+        idColumn.setCellValueFactory(data -> new SimpleStringProperty(String.valueOf(data.getValue().getId())));
         TableColumn<Book, String> titleColumn = new TableColumn<>("Tiêu đề");
         titleColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getTitle()));
         TableColumn<Book, String> authorColumn = new TableColumn<>("Tác giả");
         authorColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getAuthor()));
         TableColumn<Book, String> categoryColumn = new TableColumn<>("Thể loại");
         categoryColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getCategory()));
+        TableColumn<Book, String> quantityColumn = new TableColumn<>("Tồn kho");
+        quantityColumn.setCellValueFactory(data -> new SimpleStringProperty(
+                data.getValue().getAvailableCopies() + "/" + data.getValue().getTotalCopies()));
         TableColumn<Book, Boolean> availableColumn = new TableColumn<>("Có sẵn");
         availableColumn.setCellValueFactory(data -> new SimpleBooleanProperty(data.getValue().isAvailable()).asObject());
         availableColumn.setCellFactory(column -> new TableCell<>() {
@@ -93,8 +111,37 @@ public class UserDashboardView {
             }
         });
 
-        bookTable.getColumns().setAll(titleColumn, authorColumn, categoryColumn, availableColumn);
+        bookTable.getColumns().setAll(idColumn, titleColumn, authorColumn, categoryColumn, quantityColumn, availableColumn);
         bookTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_ALL_COLUMNS);
+        bookTable.setItems(filteredBooks);
+
+        titleFilterField = new TextField();
+        titleFilterField.setPromptText("Tiêu đề");
+        titleFilterField.setPrefWidth(160);
+        titleFilterField.textProperty().addListener((obs, old, value) -> applyBookFilters());
+
+        authorFilterField = new TextField();
+        authorFilterField.setPromptText("Tác giả");
+        authorFilterField.setPrefWidth(160);
+        authorFilterField.textProperty().addListener((obs, old, value) -> applyBookFilters());
+
+        categoryFilterBox = new ComboBox<>();
+        categoryFilterBox.setPromptText("Thể loại");
+        categoryFilterBox.setMinWidth(140);
+        categoryFilterBox.valueProperty().addListener((obs, old, value) -> applyBookFilters());
+
+        availableFilterCheck = new CheckBox("Còn sách");
+        availableFilterCheck.selectedProperty().addListener((obs, old, value) -> applyBookFilters());
+
+        HBox filterBar = new HBox(10,
+                new Label("Lọc:"),
+                titleFilterField,
+                authorFilterField,
+                categoryFilterBox,
+                availableFilterCheck);
+        filterBar.setPadding(new Insets(0, 0, 8, 0));
+        updateCategoryFilterOptions();
+        applyBookFilters();
 
         Button borrowButton = new Button("Mượn sách");
         Button reserveButton = new Button("Đặt trước");
@@ -109,7 +156,7 @@ public class UserDashboardView {
         refreshButton.setOnAction(event -> refreshBooks());
 
         HBox controls = new HBox(10, borrowButton, reserveButton, refreshButton);
-        VBox container = new VBox(10, bookTable, controls);
+        VBox container = new VBox(10, filterBar, bookTable, controls);
         container.setPadding(new Insets(12));
         VBox.setVgrow(bookTable, Priority.ALWAYS);
         Tab tab = new Tab("Danh mục", container);
@@ -167,17 +214,12 @@ public class UserDashboardView {
         if (selected == null) {
             return;
         }
-        if (!selected.isAvailable()) {
-            Alert alert = new Alert(Alert.AlertType.INFORMATION,
-                    "Sách hiện không có sẵn. Vui lòng thử đặt trước.");
-            alert.setHeaderText("Không thể mượn");
-            alert.showAndWait();
-            return;
-        }
         libraryService.borrowBook(selected.getId(), currentUser);
-        Alert alert = new Alert(Alert.AlertType.INFORMATION,
-                "Đã tạo phiếu mượn. Hạn trả sau 14 ngày.");
-        alert.setHeaderText("Mượn sách thành công");
+        String message = selected.isAvailable()
+                ? "Đã gửi yêu cầu mượn. Vui lòng chờ quản trị viên phê duyệt trước khi nhận sách."
+                : "Sách hiện đã hết bản sao. Yêu cầu của bạn sẽ nằm trong hàng chờ và được xử lý khi có sách.";
+        Alert alert = new Alert(Alert.AlertType.INFORMATION, message);
+        alert.setHeaderText("Đã gửi yêu cầu mượn");
         alert.showAndWait();
         refreshAll();
     }
@@ -189,8 +231,8 @@ public class UserDashboardView {
         }
         libraryService.reserveBook(selected.getId(), currentUser);
         Alert alert = new Alert(Alert.AlertType.INFORMATION,
-                "Đã tạo yêu cầu đặt trước cho sách '" + selected.getTitle() + "'.");
-        alert.setHeaderText("Đặt trước thành công");
+                "Yêu cầu đặt trước đã được gửi và sẽ chờ quản trị viên xác nhận.");
+        alert.setHeaderText("Đặt trước đang chờ duyệt");
         alert.showAndWait();
         refreshAll();
     }
@@ -205,7 +247,9 @@ public class UserDashboardView {
 
     private void refreshBooks() {
         List<Book> books = libraryService.getAllBooks();
-        bookTable.setItems(FXCollections.observableArrayList(books));
+        masterBooks.setAll(books);
+        updateCategoryFilterOptions();
+        applyBookFilters();
     }
 
     private void refreshLoans() {
@@ -213,8 +257,69 @@ public class UserDashboardView {
         loanTable.setItems(FXCollections.observableArrayList(loans));
     }
 
+    private void updateCategoryFilterOptions() {
+        if (categoryFilterBox == null) {
+            return;
+        }
+        String previous = categoryFilterBox.getValue();
+        Set<String> categories = masterBooks.stream()
+                .map(Book::getCategory)
+                .filter(category -> category != null && !category.isBlank())
+                .map(String::trim)
+                .collect(Collectors.toCollection(() -> new TreeSet<>(String.CASE_INSENSITIVE_ORDER)));
+        categoryFilterBox.getItems().setAll("Tất cả");
+        categoryFilterBox.getItems().addAll(categories);
+        if (previous != null && categoryFilterBox.getItems().contains(previous)) {
+            categoryFilterBox.setValue(previous);
+        } else {
+            categoryFilterBox.setValue("Tất cả");
+        }
+    }
+
+    private void applyBookFilters() {
+        if (titleFilterField == null) {
+            return;
+        }
+        String titleKeyword = normalise(titleFilterField.getText());
+        String authorKeyword = normalise(authorFilterField.getText());
+        String selectedCategory = categoryFilterBox == null ? null : categoryFilterBox.getValue();
+        boolean availableOnly = availableFilterCheck != null && availableFilterCheck.isSelected();
+
+        filteredBooks.setPredicate(book -> {
+            if (!titleKeyword.isEmpty() && !containsIgnoreCase(book.getTitle(), titleKeyword)) {
+                return false;
+            }
+            if (!authorKeyword.isEmpty() && !containsIgnoreCase(book.getAuthor(), authorKeyword)) {
+                return false;
+            }
+            if (selectedCategory != null && !selectedCategory.equals("Tất cả")) {
+                if (book.getCategory() == null || !book.getCategory().equalsIgnoreCase(selectedCategory)) {
+                    return false;
+                }
+            }
+            if (availableOnly && !book.isAvailable()) {
+                return false;
+            }
+            return true;
+        });
+    }
+
+    private boolean containsIgnoreCase(String value, String keyword) {
+        if (keyword == null || keyword.isEmpty()) {
+            return true;
+        }
+        if (value == null) {
+            return false;
+        }
+        return value.toLowerCase(Locale.ROOT).contains(keyword);
+    }
+
+    private String normalise(String value) {
+        return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
+    }
+
     private String resolveBookTitle(int bookId) {
-        return libraryService.getAllBooks().stream()
+        return masterBooks.stream()
                 .filter(book -> book.getId() == bookId)
                 .map(Book::getTitle)
                 .findFirst()

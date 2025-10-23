@@ -26,20 +26,28 @@ public class LibraryService {
         return databaseManager.findAllBooks();
     }
 
-    public Book addBook(String title, String author, String category) {
-        return databaseManager.createBook(title, author, category, true);
+    public Book addBook(String title, String author, String category, int totalCopies, int availableCopies) {
+        if (totalCopies < 0) {
+            throw new IllegalArgumentException("Tổng số bản phải không âm");
+        }
+        if (availableCopies < 0 || availableCopies > totalCopies) {
+            throw new IllegalArgumentException("Số bản còn lại không hợp lệ");
+        }
+        return databaseManager.createBook(title, author, category, totalCopies, availableCopies);
     }
 
     public void updateBook(Book book) {
+        if (book.getTotalCopies() < 0) {
+            throw new IllegalArgumentException("Tổng số bản phải không âm");
+        }
+        if (book.getAvailableCopies() < 0 || book.getAvailableCopies() > book.getTotalCopies()) {
+            throw new IllegalArgumentException("Số bản còn lại không hợp lệ");
+        }
         databaseManager.updateBook(book);
     }
 
     public void deleteBook(int bookId) {
         databaseManager.deleteBook(bookId);
-    }
-
-    public void setBookAvailability(int bookId, boolean available) {
-        databaseManager.updateBookAvailability(bookId, available);
     }
 
     public List<Loan> getAllLoans() {
@@ -51,21 +59,31 @@ public class LibraryService {
     }
 
     public Loan borrowBook(int bookId, User user) {
-        databaseManager.updateBookAvailability(bookId, false);
-        LocalDate loanDate = LocalDate.now();
-        LocalDate dueDate = loanDate.plusDays(DEFAULT_LOAN_PERIOD_DAYS);
-        Loan loan = databaseManager.createLoan(bookId, user.getId(), loanDate, dueDate, DEFAULT_DAILY_FEE);
-        for (Reservation reservation : databaseManager.findReservationsByUser(user.getId())) {
-            if (reservation.getBookId() == bookId && reservation.isActive()) {
-                databaseManager.fulfilReservation(reservation.getId());
+        Book book = databaseManager.findBookById(bookId);
+        if (book == null) {
+            throw new IllegalArgumentException("Không tìm thấy sách với id=" + bookId);
+        }
+        return databaseManager.createBorrowRequest(bookId, user.getId(), LocalDate.now(), DEFAULT_LOAN_PERIOD_DAYS, DEFAULT_DAILY_FEE);
+    }
+
+    public void returnBook(Loan loan) {
+        databaseManager.markLoanReturned(loan.getId(), LocalDate.now());
+    }
+
+    public Loan approveLoan(int loanId) {
+        Loan loan = databaseManager.approveLoan(loanId, DEFAULT_LOAN_PERIOD_DAYS);
+        if (loan != null && loan.isActive()) {
+            for (Reservation reservation : databaseManager.findReservationsByUser(loan.getUserId())) {
+                if (reservation.getBookId() == loan.getBookId() && reservation.isApproved()) {
+                    databaseManager.fulfilReservation(reservation.getId());
+                }
             }
         }
         return loan;
     }
 
-    public void returnBook(Loan loan) {
-        databaseManager.markLoanReturned(loan.getId(), LocalDate.now());
-        databaseManager.updateBookAvailability(loan.getBookId(), true);
+    public Loan rejectLoan(int loanId) {
+        return databaseManager.rejectLoan(loanId);
     }
 
     public List<User> getAllUsers() {
@@ -86,6 +104,14 @@ public class LibraryService {
 
     public void cancelReservation(int reservationId) {
         databaseManager.cancelReservation(reservationId);
+    }
+
+    public void approveReservation(int reservationId) {
+        databaseManager.approveReservation(reservationId);
+    }
+
+    public void rejectReservation(int reservationId) {
+        databaseManager.rejectReservation(reservationId);
     }
 
     public void fulfilReservation(int reservationId) {

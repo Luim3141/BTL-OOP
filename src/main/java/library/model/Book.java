@@ -7,14 +7,21 @@ public class Book {
     private final String title;
     private final String author;
     private final String category;
-    private final boolean available;
+    private final int totalCopies;
+    private final int availableCopies;
 
-    public Book(int id, String title, String author, String category, boolean available) {
+    public Book(int id,
+                String title,
+                String author,
+                String category,
+                int totalCopies,
+                int availableCopies) {
         this.id = id;
         this.title = title;
         this.author = author;
         this.category = category;
-        this.available = available;
+        this.totalCopies = totalCopies;
+        this.availableCopies = availableCopies;
     }
 
     public int getId() {
@@ -33,16 +40,24 @@ public class Book {
         return category;
     }
 
+    public int getTotalCopies() {
+        return totalCopies;
+    }
+
+    public int getAvailableCopies() {
+        return availableCopies;
+    }
+
     public boolean isAvailable() {
-        return available;
+        return availableCopies > 0;
     }
 
-    public Book withAvailability(boolean availability) {
-        return new Book(id, title, author, category, availability);
-    }
-
-    public Book withDetails(String newTitle, String newAuthor, String newCategory) {
-        return new Book(id, newTitle, newAuthor, newCategory, available);
+    public Book withDetails(String newTitle,
+                            String newAuthor,
+                            String newCategory,
+                            int newTotalCopies,
+                            int newAvailableCopies) {
+        return new Book(id, newTitle, newAuthor, newCategory, newTotalCopies, newAvailableCopies);
     }
 
     @Override

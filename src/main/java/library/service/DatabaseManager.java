@@ -48,7 +48,9 @@ public class DatabaseManager {
                 "title TEXT NOT NULL," +
                 "author TEXT NOT NULL," +
                 "category TEXT," +
-                "available BOOLEAN NOT NULL" +
+                "available BOOLEAN NOT NULL," +
+                "total_copies INTEGER NOT NULL," +
+                "available_copies INTEGER NOT NULL" +
                 ")");
         database.execute("CREATE TABLE IF NOT EXISTS loans (" +
                 "id INTEGER PRIMARY KEY AUTOINCREMENT," +
@@ -68,6 +70,28 @@ public class DatabaseManager {
                 "reservation_date TEXT NOT NULL," +
                 "status TEXT NOT NULL" +
                 ")");
+        migrateBookInventory();
+    }
+
+    private void migrateBookInventory() {
+        List<Map<String, Object>> rows = database.query("SELECT * FROM books");
+        for (Map<String, Object> row : rows) {
+            int id = ((Number) row.get("id")).intValue();
+            int total = row.get("total_copies") == null ? 1 : getInt(row.get("total_copies"));
+            if (total <= 0) {
+                total = 1;
+            }
+            int available = row.get("available_copies") == null
+                    ? (getBoolean(row.get("available")) ? total : 0)
+                    : getInt(row.get("available_copies"));
+            available = Math.max(0, Math.min(available, total));
+            boolean availableFlag = available > 0;
+            database.update("UPDATE books SET total_copies = ?, available_copies = ?, available = ? WHERE id = ?",
+                    total,
+                    available,
+                    availableFlag,
+                    id);
+        }
     }
 
     private void seedInitialData() {
@@ -81,12 +105,12 @@ public class DatabaseManager {
 
         List<Map<String, Object>> books = database.query("SELECT * FROM books");
         if (books.isEmpty()) {
-            database.update("INSERT INTO books (title, author, category, available) VALUES (?, ?, ?, ?)",
-                    "Lập trình Java", "Nguyễn Văn A", "Công nghệ", true);
-            database.update("INSERT INTO books (title, author, category, available) VALUES (?, ?, ?, ?)",
-                    "Cấu trúc dữ liệu", "Trần Thị B", "Khoa học", true);
-            database.update("INSERT INTO books (title, author, category, available) VALUES (?, ?, ?, ?)",
-                    "Thuật toán nâng cao", "Phạm Văn C", "Công nghệ", true);
+            database.update("INSERT INTO books (title, author, category, available, total_copies, available_copies) VALUES (?, ?, ?, ?, ?, ?)",
+                    "Lập trình Java", "Nguyễn Văn A", "Công nghệ", true, 3, 3);
+            database.update("INSERT INTO books (title, author, category, available, total_copies, available_copies) VALUES (?, ?, ?, ?, ?, ?)",
+                    "Cấu trúc dữ liệu", "Trần Thị B", "Khoa học", true, 2, 2);
+            database.update("INSERT INTO books (title, author, category, available, total_copies, available_copies) VALUES (?, ?, ?, ?, ?, ?)",
+                    "Thuật toán nâng cao", "Phạm Văn C", "Công nghệ", true, 4, 4);
         }
     }
 
@@ -132,9 +156,28 @@ public class DatabaseManager {
         return books;
     }
 
-    public Book createBook(String title, String author, String category, boolean available) {
-        database.update("INSERT INTO books (title, author, category, available) VALUES (?, ?, ?, ?)",
-                title, author, category, available);
+    public Book findBookById(int id) {
+        List<Map<String, Object>> result = database.query("SELECT * FROM books WHERE id = ?", id);
+        if (result.isEmpty()) {
+            return null;
+        }
+        return toBook(result.get(0));
+    }
+
+    public Book createBook(String title,
+                           String author,
+                           String category,
+                           int totalCopies,
+                           int availableCopies) {
+        int safeTotal = Math.max(totalCopies, 0);
+        int safeAvailable = Math.max(0, Math.min(availableCopies, safeTotal));
+        database.update("INSERT INTO books (title, author, category, available, total_copies, available_copies) VALUES (?, ?, ?, ?, ?, ?)",
+                title,
+                author,
+                category,
+                safeAvailable > 0,
+                safeTotal,
+                safeAvailable);
         List<Map<String, Object>> result = database.query(
                 "SELECT * FROM books WHERE title = ? AND author = ?", title, author);
         if (result.isEmpty()) {
@@ -144,16 +187,44 @@ public class DatabaseManager {
     }
 
     public void updateBook(Book book) {
-        database.update("UPDATE books SET title = ?, author = ?, category = ?, available = ? WHERE id = ?",
-                book.getTitle(), book.getAuthor(), book.getCategory(), book.isAvailable(), book.getId());
+        int safeTotal = Math.max(book.getTotalCopies(), 0);
+        int safeAvailable = Math.max(0, Math.min(book.getAvailableCopies(), safeTotal));
+        database.update("UPDATE books SET title = ?, author = ?, category = ?, available = ?, total_copies = ?, available_copies = ? WHERE id = ?",
+                book.getTitle(),
+                book.getAuthor(),
+                book.getCategory(),
+                safeAvailable > 0,
+                safeTotal,
+                safeAvailable,
+                book.getId());
     }
 
     public void deleteBook(int bookId) {
         database.update("DELETE FROM books WHERE id = ?", bookId);
     }
 
-    public void updateBookAvailability(int bookId, boolean available) {
-        database.update("UPDATE books SET available = ? WHERE id = ?", available, bookId);
+    public void decrementAvailableCopies(int bookId) {
+        Book book = findBookById(bookId);
+        if (book == null) {
+            return;
+        }
+        int newAvailable = Math.max(0, book.getAvailableCopies() - 1);
+        database.update("UPDATE books SET available_copies = ?, available = ? WHERE id = ?",
+                newAvailable,
+                newAvailable > 0,
+                bookId);
+    }
+
+    public void incrementAvailableCopies(int bookId) {
+        Book book = findBookById(bookId);
+        if (book == null) {
+            return;
+        }
+        int newAvailable = Math.min(book.getTotalCopies(), book.getAvailableCopies() + 1);
+        database.update("UPDATE books SET available_copies = ?, available = ? WHERE id = ?",
+                newAvailable,
+                newAvailable > 0,
+                bookId);
     }
 
     public List<Loan> findAllLoans() {
@@ -176,24 +247,81 @@ public class DatabaseManager {
         return loans;
     }
 
-    public Loan createLoan(int bookId, int userId, LocalDate loanDate, LocalDate dueDate, double dailyFee) {
+    public Loan findLoanById(int loanId) {
+        List<Map<String, Object>> rows = database.query("SELECT * FROM loans WHERE id = ?", loanId);
+        if (rows.isEmpty()) {
+            return null;
+        }
+        return toLoan(rows.get(0));
+    }
+
+    public Loan createBorrowRequest(int bookId,
+                                    int userId,
+                                    LocalDate requestDate,
+                                    int loanPeriodDays,
+                                    double dailyFee) {
+        LocalDate dueDate = requestDate.plusDays(loanPeriodDays);
         database.update("INSERT INTO loans (book_id, user_id, loan_date, due_date, return_date, daily_fee, accrued_fee, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 bookId,
                 userId,
-                loanDate.format(DATE_FORMATTER),
+                requestDate.format(DATE_FORMATTER),
                 dueDate.format(DATE_FORMATTER),
                 null,
                 dailyFee,
                 0.0,
-                "BORROWED");
+                "PENDING");
         List<Map<String, Object>> rows = database.query(
                 "SELECT * FROM loans WHERE book_id = ? AND user_id = ?", bookId, userId);
         return toLoan(rows.get(rows.size() - 1));
     }
 
+    public Loan approveLoan(int loanId, int loanPeriodDays) {
+        Loan loan = findLoanById(loanId);
+        if (loan == null) {
+            throw new IllegalArgumentException("Không tìm thấy phiếu mượn với id=" + loanId);
+        }
+        if (!loan.isPending()) {
+            return loan;
+        }
+        Book book = findBookById(loan.getBookId());
+        if (book == null) {
+            throw new IllegalStateException("Không tìm thấy sách tương ứng");
+        }
+        if (book.getAvailableCopies() <= 0) {
+            throw new IllegalStateException("Không còn bản sao khả dụng để cho mượn");
+        }
+        LocalDate loanDate = LocalDate.now();
+        LocalDate dueDate = loanDate.plusDays(loanPeriodDays);
+        database.update("UPDATE loans SET status = ?, loan_date = ?, due_date = ?, return_date = ?, accrued_fee = ? WHERE id = ?",
+                "BORROWED",
+                loanDate.format(DATE_FORMATTER),
+                dueDate.format(DATE_FORMATTER),
+                null,
+                0.0,
+                loanId);
+        decrementAvailableCopies(book.getId());
+        return findLoanById(loanId);
+    }
+
+    public Loan rejectLoan(int loanId) {
+        Loan loan = findLoanById(loanId);
+        if (loan == null) {
+            throw new IllegalArgumentException("Không tìm thấy phiếu mượn với id=" + loanId);
+        }
+        if (loan.isPending()) {
+            database.update("UPDATE loans SET status = ? WHERE id = ?", "REJECTED", loanId);
+        }
+        return findLoanById(loanId);
+    }
+
     public void markLoanReturned(int loanId, LocalDate returnDate) {
+        Loan loan = findLoanById(loanId);
+        if (loan == null) {
+            return;
+        }
         database.update("UPDATE loans SET status = ?, return_date = ? WHERE id = ?",
                 "RETURNED", returnDate.format(DATE_FORMATTER), loanId);
+        incrementAvailableCopies(loan.getBookId());
     }
 
     public void refreshLoanStatuses() {
@@ -201,7 +329,7 @@ public class DatabaseManager {
         LocalDate today = LocalDate.now();
         for (Map<String, Object> row : rows) {
             String status = (String) row.get("status");
-            if ("RETURNED".equalsIgnoreCase(status)) {
+            if ("RETURNED".equalsIgnoreCase(status) || "REJECTED".equalsIgnoreCase(status) || "PENDING".equalsIgnoreCase(status)) {
                 continue;
             }
             LocalDate dueDate = LocalDate.parse((String) row.get("due_date"), DATE_FORMATTER);
@@ -249,7 +377,7 @@ public class DatabaseManager {
                 bookId,
                 userId,
                 date.format(DATE_FORMATTER),
-                "ACTIVE");
+                "PENDING");
         List<Map<String, Object>> rows = database.query(
                 "SELECT * FROM reservations WHERE book_id = ? AND user_id = ?", bookId, userId);
         return toReservation(rows.get(rows.size() - 1));
@@ -257,6 +385,14 @@ public class DatabaseManager {
 
     public void cancelReservation(int reservationId) {
         database.update("UPDATE reservations SET status = ? WHERE id = ?", "CANCELLED", reservationId);
+    }
+
+    public void approveReservation(int reservationId) {
+        database.update("UPDATE reservations SET status = ? WHERE id = ?", "APPROVED", reservationId);
+    }
+
+    public void rejectReservation(int reservationId) {
+        database.update("UPDATE reservations SET status = ? WHERE id = ?", "REJECTED", reservationId);
     }
 
     public void fulfilReservation(int reservationId) {
@@ -273,11 +409,22 @@ public class DatabaseManager {
     }
 
     private Book toBook(Map<String, Object> row) {
+        int totalCopies = row.get("total_copies") == null
+                ? (getBoolean(row.get("available")) ? 1 : 0)
+                : getInt(row.get("total_copies"));
+        if (totalCopies < 0) {
+            totalCopies = 0;
+        }
+        int availableCopies = row.get("available_copies") == null
+                ? (getBoolean(row.get("available")) ? Math.max(1, totalCopies) : 0)
+                : getInt(row.get("available_copies"));
+        availableCopies = Math.max(0, Math.min(availableCopies, totalCopies));
         return new Book(((Number) row.get("id")).intValue(),
                 (String) row.get("title"),
                 (String) row.get("author"),
                 (String) row.get("category"),
-                getBoolean(row.get("available")));
+                totalCopies,
+                availableCopies);
     }
 
     private Loan toLoan(Map<String, Object> row) {
@@ -305,6 +452,19 @@ public class DatabaseManager {
                 ((Number) row.get("user_id")).intValue(),
                 reservationDate,
                 (String) row.get("status"));
+    }
+
+    private int getInt(Object value) {
+        if (value == null) {
+            return 0;
+        }
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        if (value instanceof String text) {
+            return Integer.parseInt(text);
+        }
+        return 0;
     }
 
     private boolean getBoolean(Object value) {

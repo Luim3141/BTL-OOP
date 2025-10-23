@@ -64,35 +64,53 @@ public class ReservationsPanel extends VBox {
     }
 
     private HBox createControls() {
+        Button approveButton = new Button("Chấp nhận");
+        Button rejectButton = new Button("Từ chối");
         Button fulfilButton = new Button("Hoàn tất");
         Button cancelButton = new Button("Hủy");
         Button refreshButton = new Button("Làm mới");
 
+        applyIcon(approveButton, "add");
+        applyIcon(rejectButton, "remove");
         applyIcon(fulfilButton, "loan");
         applyIcon(cancelButton, "remove");
         applyIcon(refreshButton, "refresh");
 
+        approveButton.setOnAction(event -> {
+            ReservationRow row = tableView.getSelectionModel().getSelectedItem();
+            if (row == null || !row.reservation().isPending()) {
+                return;
+            }
+            libraryService.approveReservation(row.reservation().getId());
+            handleRefresh();
+        });
+
+        rejectButton.setOnAction(event -> {
+            ReservationRow row = tableView.getSelectionModel().getSelectedItem();
+            if (row == null || !row.reservation().isPending()) {
+                return;
+            }
+            libraryService.rejectReservation(row.reservation().getId());
+            handleRefresh();
+        });
+
         fulfilButton.setOnAction(event -> {
             ReservationRow row = tableView.getSelectionModel().getSelectedItem();
-            if (row == null || !row.reservation().isActive()) {
+            if (row == null || !row.reservation().isApproved()) {
                 return;
             }
             libraryService.fulfilReservation(row.reservation().getId());
-            refresh();
-            if (onChange != null) {
-                onChange.run();
-            }
+            handleRefresh();
         });
 
         cancelButton.setOnAction(event -> {
             ReservationRow row = tableView.getSelectionModel().getSelectedItem();
-            if (row == null || !row.reservation().isActive()) {
+            if (row == null) {
                 return;
             }
-            libraryService.cancelReservation(row.reservation().getId());
-            refresh();
-            if (onChange != null) {
-                onChange.run();
+            if (adminMode || row.reservation().isPending() || row.reservation().isApproved()) {
+                libraryService.cancelReservation(row.reservation().getId());
+                handleRefresh();
             }
         });
 
@@ -100,11 +118,18 @@ public class ReservationsPanel extends VBox {
 
         HBox buttons = new HBox(8);
         if (adminMode) {
-            buttons.getChildren().addAll(fulfilButton, cancelButton, refreshButton);
+            buttons.getChildren().addAll(approveButton, rejectButton, fulfilButton, cancelButton, refreshButton);
         } else {
             buttons.getChildren().addAll(cancelButton, refreshButton);
         }
         return buttons;
+    }
+
+    private void handleRefresh() {
+        refresh();
+        if (onChange != null) {
+            onChange.run();
+        }
     }
 
     public void refresh() {

@@ -3,6 +3,8 @@ package library.ui;
 import javafx.beans.property.SimpleBooleanProperty;
 import javafx.beans.property.SimpleStringProperty;
 import javafx.collections.FXCollections;
+import javafx.collections.ObservableList;
+import javafx.collections.transformation.FilteredList;
 import javafx.geometry.Insets;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
@@ -22,7 +24,11 @@ import java.io.File;
 import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.stream.Collectors;
 
 public class AdminDashboardView {
     private final User currentUser;
@@ -33,6 +39,13 @@ public class AdminDashboardView {
     private final TableView<User> userTable = new TableView<>();
     private final TableView<Loan> loanTable = new TableView<>();
     private ReservationsPanel reservationsPanel;
+
+    private final ObservableList<Book> masterBooks = FXCollections.observableArrayList();
+    private final FilteredList<Book> filteredBooks = new FilteredList<>(masterBooks);
+    private TextField titleFilterField;
+    private TextField authorFilterField;
+    private ComboBox<String> categoryFilterBox;
+    private CheckBox availableFilterCheck;
 
     public AdminDashboardView(User currentUser, LibraryService libraryService, Runnable onLogout) {
         this.currentUser = Objects.requireNonNull(currentUser);
@@ -81,12 +94,17 @@ public class AdminDashboardView {
     }
 
     private Tab createBooksTab() {
+        TableColumn<Book, String> idColumn = new TableColumn<>("Mã");
+        idColumn.setCellValueFactory(data -> new SimpleStringProperty(String.valueOf(data.getValue().getId())));
         TableColumn<Book, String> titleColumn = new TableColumn<>("Tiêu đề");
         titleColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getTitle()));
         TableColumn<Book, String> authorColumn = new TableColumn<>("Tác giả");
         authorColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getAuthor()));
         TableColumn<Book, String> categoryColumn = new TableColumn<>("Thể loại");
         categoryColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getCategory()));
+        TableColumn<Book, String> quantityColumn = new TableColumn<>("Tồn kho");
+        quantityColumn.setCellValueFactory(data -> new SimpleStringProperty(
+                data.getValue().getAvailableCopies() + "/" + data.getValue().getTotalCopies()));
         TableColumn<Book, Boolean> availabilityColumn = new TableColumn<>("Có sẵn");
         availabilityColumn.setCellValueFactory(data -> new SimpleBooleanProperty(data.getValue().isAvailable()).asObject());
         availabilityColumn.setCellFactory(column -> new TableCell<>() {
@@ -101,8 +119,37 @@ public class AdminDashboardView {
             }
         });
 
-        bookTable.getColumns().setAll(titleColumn, authorColumn, categoryColumn, availabilityColumn);
+        bookTable.getColumns().setAll(idColumn, titleColumn, authorColumn, categoryColumn, quantityColumn, availabilityColumn);
         bookTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_ALL_COLUMNS);
+        bookTable.setItems(filteredBooks);
+
+        titleFilterField = new TextField();
+        titleFilterField.setPromptText("Tiêu đề");
+        titleFilterField.setPrefWidth(160);
+        titleFilterField.textProperty().addListener((obs, old, value) -> applyBookFilters());
+
+        authorFilterField = new TextField();
+        authorFilterField.setPromptText("Tác giả");
+        authorFilterField.setPrefWidth(160);
+        authorFilterField.textProperty().addListener((obs, old, value) -> applyBookFilters());
+
+        categoryFilterBox = new ComboBox<>();
+        categoryFilterBox.setPromptText("Thể loại");
+        categoryFilterBox.setMinWidth(140);
+        categoryFilterBox.valueProperty().addListener((obs, old, value) -> applyBookFilters());
+
+        availableFilterCheck = new CheckBox("Còn sách");
+        availableFilterCheck.selectedProperty().addListener((obs, old, value) -> applyBookFilters());
+
+        HBox filterBar = new HBox(10,
+                new Label("Lọc:"),
+                titleFilterField,
+                authorFilterField,
+                categoryFilterBox,
+                availableFilterCheck);
+        filterBar.setPadding(new Insets(0, 0, 8, 0));
+        updateCategoryFilterOptions();
+        applyBookFilters();
 
         Button addButton = new Button("Thêm sách");
         Button editButton = new Button("Sửa");
@@ -140,7 +187,7 @@ public class AdminDashboardView {
         HBox controls = new HBox(8, addButton, editButton, deleteButton, refreshButton);
         VBox.setMargin(controls, new Insets(12, 0, 0, 0));
 
-        VBox container = new VBox(10, bookTable, controls);
+        VBox container = new VBox(10, filterBar, bookTable, controls);
         container.setPadding(new Insets(12));
         VBox.setVgrow(bookTable, Priority.ALWAYS);
         Tab tab = new Tab("Sách", container);
@@ -157,12 +204,40 @@ public class AdminDashboardView {
         TextField authorField = new TextField(book == null ? "" : book.getAuthor());
         TextField categoryField = new TextField(book == null ? "" : book.getCategory());
 
+        int initialTotal = book == null ? 1 : book.getTotalCopies();
+        if (initialTotal < 0) {
+            initialTotal = 0;
+        }
+        Spinner<Integer> totalSpinner = new Spinner<>();
+        SpinnerValueFactory.IntegerSpinnerValueFactory totalFactory =
+                new SpinnerValueFactory.IntegerSpinnerValueFactory(0, 1000, initialTotal);
+        totalSpinner.setValueFactory(totalFactory);
+        totalSpinner.setEditable(true);
+
+        int initialAvailable = book == null ? initialTotal : book.getAvailableCopies();
+        initialAvailable = Math.max(0, Math.min(initialAvailable, initialTotal));
+        Spinner<Integer> availableSpinner = new Spinner<>();
+        SpinnerValueFactory.IntegerSpinnerValueFactory availableFactory =
+                new SpinnerValueFactory.IntegerSpinnerValueFactory(0, initialTotal, initialAvailable);
+        availableSpinner.setValueFactory(availableFactory);
+        availableSpinner.setEditable(true);
+
+        totalFactory.valueProperty().addListener((obs, oldValue, newValue) -> {
+            int newTotal = newValue == null ? 0 : newValue;
+            availableFactory.setMax(newTotal);
+            if (availableSpinner.getValue() > newTotal) {
+                availableSpinner.getValueFactory().setValue(newTotal);
+            }
+        });
+
         GridPane grid = new GridPane();
         grid.setHgap(10);
         grid.setVgap(10);
         grid.addRow(0, new Label("Tiêu đề"), titleField);
         grid.addRow(1, new Label("Tác giả"), authorField);
         grid.addRow(2, new Label("Thể loại"), categoryField);
+        grid.addRow(3, new Label("Tổng số bản"), totalSpinner);
+        grid.addRow(4, new Label("Đang có"), availableSpinner);
         dialog.getDialogPane().setContent(grid);
 
         dialog.setResultConverter(button -> {
@@ -170,13 +245,15 @@ public class AdminDashboardView {
                 String title = titleField.getText().trim();
                 String author = authorField.getText().trim();
                 String category = categoryField.getText().trim();
+                int total = totalSpinner.getValue();
+                int available = Math.min(availableSpinner.getValue(), total);
                 if (title.isEmpty() || author.isEmpty()) {
                     return null;
                 }
                 if (book == null) {
-                    libraryService.addBook(title, author, category);
+                    libraryService.addBook(title, author, category, total, available);
                 } else {
-                    libraryService.updateBook(book.withDetails(title, author, category));
+                    libraryService.updateBook(book.withDetails(title, author, category, total, available));
                 }
                 return book;
             }
@@ -236,15 +313,49 @@ public class AdminDashboardView {
         loanTable.getColumns().setAll(idColumn, bookColumn, userColumn, loanDateColumn, dueDateColumn, statusColumn, feeColumn);
         loanTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_ALL_COLUMNS);
 
+        Button approveButton = new Button("Duyệt");
+        Button rejectButton = new Button("Từ chối");
         Button markReturnedButton = new Button("Đánh dấu đã trả");
         Button refreshButton = new Button("Làm mới");
 
+        applyIcon(approveButton, "add");
+        applyIcon(rejectButton, "remove");
         applyIcon(markReturnedButton, "loan");
         applyIcon(refreshButton, "refresh");
 
+        approveButton.setOnAction(event -> {
+            Loan selected = loanTable.getSelectionModel().getSelectedItem();
+            if (selected == null || !selected.isPending()) {
+                return;
+            }
+            try {
+                libraryService.approveLoan(selected.getId());
+                Alert alert = new Alert(Alert.AlertType.INFORMATION, "Đã duyệt yêu cầu mượn.");
+                alert.setHeaderText("Thành công");
+                alert.showAndWait();
+                refreshAllTables();
+            } catch (RuntimeException exception) {
+                Alert alert = new Alert(Alert.AlertType.ERROR, exception.getMessage());
+                alert.setHeaderText("Không thể duyệt");
+                alert.showAndWait();
+            }
+        });
+
+        rejectButton.setOnAction(event -> {
+            Loan selected = loanTable.getSelectionModel().getSelectedItem();
+            if (selected == null || !selected.isPending()) {
+                return;
+            }
+            libraryService.rejectLoan(selected.getId());
+            Alert alert = new Alert(Alert.AlertType.INFORMATION, "Đã từ chối yêu cầu mượn.");
+            alert.setHeaderText("Đã cập nhật");
+            alert.showAndWait();
+            refreshAllTables();
+        });
+
         markReturnedButton.setOnAction(event -> {
             Loan selected = loanTable.getSelectionModel().getSelectedItem();
-            if (selected == null || "RETURNED".equalsIgnoreCase(selected.getStatus())) {
+            if (selected == null || selected.isReturned() || selected.isPending() || selected.isRejected()) {
                 return;
             }
             libraryService.returnBook(selected);
@@ -252,7 +363,7 @@ public class AdminDashboardView {
         });
         refreshButton.setOnAction(event -> refreshLoans());
 
-        HBox controls = new HBox(10, markReturnedButton, refreshButton);
+        HBox controls = new HBox(10, approveButton, rejectButton, markReturnedButton, refreshButton);
         VBox container = new VBox(10, loanTable, controls);
         container.setPadding(new Insets(12));
         VBox.setVgrow(loanTable, Priority.ALWAYS);
@@ -305,6 +416,67 @@ public class AdminDashboardView {
         button.setContentDisplay(ContentDisplay.LEFT);
     }
 
+    private void updateCategoryFilterOptions() {
+        if (categoryFilterBox == null) {
+            return;
+        }
+        String previous = categoryFilterBox.getValue();
+        Set<String> categories = masterBooks.stream()
+                .map(Book::getCategory)
+                .filter(category -> category != null && !category.isBlank())
+                .map(String::trim)
+                .collect(Collectors.toCollection(() -> new TreeSet<>(String.CASE_INSENSITIVE_ORDER)));
+        categoryFilterBox.getItems().setAll("Tất cả");
+        categoryFilterBox.getItems().addAll(categories);
+        if (previous != null && categoryFilterBox.getItems().contains(previous)) {
+            categoryFilterBox.setValue(previous);
+        } else {
+            categoryFilterBox.setValue("Tất cả");
+        }
+    }
+
+    private void applyBookFilters() {
+        if (titleFilterField == null) {
+            return;
+        }
+        String titleKeyword = normalise(titleFilterField.getText());
+        String authorKeyword = normalise(authorFilterField.getText());
+        String selectedCategory = categoryFilterBox == null ? null : categoryFilterBox.getValue();
+        boolean availableOnly = availableFilterCheck != null && availableFilterCheck.isSelected();
+
+        filteredBooks.setPredicate(book -> {
+            if (!titleKeyword.isEmpty() && !containsIgnoreCase(book.getTitle(), titleKeyword)) {
+                return false;
+            }
+            if (!authorKeyword.isEmpty() && !containsIgnoreCase(book.getAuthor(), authorKeyword)) {
+                return false;
+            }
+            if (selectedCategory != null && !selectedCategory.equals("Tất cả")) {
+                if (book.getCategory() == null || !book.getCategory().equalsIgnoreCase(selectedCategory)) {
+                    return false;
+                }
+            }
+            if (availableOnly && !book.isAvailable()) {
+                return false;
+            }
+            return true;
+        });
+    }
+
+    private boolean containsIgnoreCase(String value, String keyword) {
+        if (keyword == null || keyword.isEmpty()) {
+            return true;
+        }
+        if (value == null) {
+            return false;
+        }
+        return value.toLowerCase(Locale.ROOT).contains(keyword);
+    }
+
+    private String normalise(String value) {
+        return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
+    }
+
     private void refreshAllTables() {
         refreshBooks();
         refreshUsers();
@@ -332,7 +504,9 @@ public class AdminDashboardView {
 
     private void refreshBooks() {
         List<Book> books = libraryService.getAllBooks();
-        bookTable.setItems(FXCollections.observableArrayList(books));
+        masterBooks.setAll(books);
+        updateCategoryFilterOptions();
+        applyBookFilters();
     }
 
     private void refreshUsers() {
@@ -346,7 +520,7 @@ public class AdminDashboardView {
     }
 
     private String resolveBookTitle(int bookId) {
-        return libraryService.getAllBooks().stream()
+        return masterBooks.stream()
                 .filter(book -> book.getId() == bookId)
                 .map(Book::getTitle)
                 .findFirst()
