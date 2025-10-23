@@ -1,5 +1,6 @@
 package library.ui;
 
+import javafx.application.Platform;
 import javafx.beans.property.SimpleBooleanProperty;
 import javafx.beans.property.SimpleStringProperty;
 import javafx.collections.FXCollections;
@@ -43,6 +44,7 @@ public class UserDashboardView {
     private TextField authorFilterField;
     private ComboBox<String> categoryFilterBox;
     private CheckBox availableFilterCheck;
+    private AutoCloseable changeSubscription;
 
     public UserDashboardView(User currentUser, LibraryService libraryService, Runnable onLogout) {
         this.currentUser = Objects.requireNonNull(currentUser);
@@ -56,6 +58,7 @@ public class UserDashboardView {
         root.setTop(createHeader());
         root.setCenter(createContent());
         refreshAll();
+        subscribeToChanges();
         return new Scene(root, 900, 620);
     }
 
@@ -69,7 +72,10 @@ public class UserDashboardView {
 
         Button logout = new Button("Đăng xuất");
         applyButtonIcon(logout, "action-button");
-        logout.setOnAction(event -> onLogout.run());
+        logout.setOnAction(event -> {
+            cleanup();
+            onLogout.run();
+        });
 
         BorderPane header = new BorderPane();
         header.setLeft(welcome);
@@ -242,6 +248,21 @@ public class UserDashboardView {
         refreshLoans();
         if (reservationsPanel != null) {
             reservationsPanel.refresh();
+        }
+    }
+
+    private void subscribeToChanges() {
+        cleanup();
+        changeSubscription = libraryService.onDataChanged(change -> Platform.runLater(this::refreshAll));
+    }
+
+    private void cleanup() {
+        if (changeSubscription != null) {
+            try {
+                changeSubscription.close();
+            } catch (Exception ignored) {
+            }
+            changeSubscription = null;
         }
     }
 

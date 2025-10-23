@@ -2,6 +2,8 @@ package library.ui;
 
 import javafx.beans.property.SimpleStringProperty;
 import javafx.collections.FXCollections;
+import javafx.collections.ObservableList;
+import javafx.collections.transformation.FilteredList;
 import javafx.geometry.Insets;
 import javafx.scene.control.*;
 import javafx.scene.layout.HBox;
@@ -25,6 +27,9 @@ public class ReservationsPanel extends VBox {
     private final Integer userFilter;
 
     private final TableView<ReservationRow> tableView = new TableView<>();
+    private final ObservableList<ReservationRow> masterReservations = FXCollections.observableArrayList();
+    private final FilteredList<ReservationRow> filteredReservations = new FilteredList<>(masterReservations);
+    private CheckBox pendingOnlyCheck;
 
     public ReservationsPanel(LibraryService libraryService, Runnable onChange, boolean adminMode) {
         this(libraryService, onChange, adminMode, null);
@@ -60,6 +65,8 @@ public class ReservationsPanel extends VBox {
 
         tableView.getColumns().setAll(idColumn, bookColumn, userColumn, dateColumn, statusColumn);
         tableView.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_ALL_COLUMNS);
+        tableView.getSelectionModel().setSelectionMode(SelectionMode.MULTIPLE);
+        tableView.setItems(filteredReservations);
         return tableView;
     }
 
@@ -76,49 +83,19 @@ public class ReservationsPanel extends VBox {
         applyIcon(cancelButton, "remove");
         applyIcon(refreshButton, "refresh");
 
-        approveButton.setOnAction(event -> {
-            ReservationRow row = tableView.getSelectionModel().getSelectedItem();
-            if (row == null || !row.reservation().isPending()) {
-                return;
-            }
-            libraryService.approveReservation(row.reservation().getId());
-            handleRefresh();
-        });
-
-        rejectButton.setOnAction(event -> {
-            ReservationRow row = tableView.getSelectionModel().getSelectedItem();
-            if (row == null || !row.reservation().isPending()) {
-                return;
-            }
-            libraryService.rejectReservation(row.reservation().getId());
-            handleRefresh();
-        });
-
-        fulfilButton.setOnAction(event -> {
-            ReservationRow row = tableView.getSelectionModel().getSelectedItem();
-            if (row == null || !row.reservation().isApproved()) {
-                return;
-            }
-            libraryService.fulfilReservation(row.reservation().getId());
-            handleRefresh();
-        });
-
-        cancelButton.setOnAction(event -> {
-            ReservationRow row = tableView.getSelectionModel().getSelectedItem();
-            if (row == null) {
-                return;
-            }
-            if (adminMode || row.reservation().isPending() || row.reservation().isApproved()) {
-                libraryService.cancelReservation(row.reservation().getId());
-                handleRefresh();
-            }
-        });
+        approveButton.setOnAction(event -> approveSelected());
+        rejectButton.setOnAction(event -> rejectSelected());
+        fulfilButton.setOnAction(event -> fulfilSelected());
+        cancelButton.setOnAction(event -> cancelSelected());
 
         refreshButton.setOnAction(event -> refresh());
 
         HBox buttons = new HBox(8);
         if (adminMode) {
-            buttons.getChildren().addAll(approveButton, rejectButton, fulfilButton, cancelButton, refreshButton);
+            pendingOnlyCheck = new CheckBox("Chỉ hiển thị hàng chờ");
+            pendingOnlyCheck.setSelected(true);
+            pendingOnlyCheck.selectedProperty().addListener((obs, old, value) -> applyFilters());
+            buttons.getChildren().addAll(approveButton, rejectButton, fulfilButton, cancelButton, pendingOnlyCheck, refreshButton);
         } else {
             buttons.getChildren().addAll(cancelButton, refreshButton);
         }
@@ -146,7 +123,9 @@ public class ReservationsPanel extends VBox {
             String username = usernames.getOrDefault(reservation.getUserId(), "#" + reservation.getUserId());
             rows.add(new ReservationRow(reservation, bookTitle, username));
         }
-        tableView.setItems(FXCollections.observableArrayList(rows));
+        masterReservations.setAll(rows);
+        tableView.getSelectionModel().clearSelection();
+        applyFilters();
     }
 
     private record ReservationRow(Reservation reservation, String bookTitle, String username) {
@@ -155,5 +134,96 @@ public class ReservationsPanel extends VBox {
     private void applyIcon(Button button, String iconName) {
         button.setGraphic(IconProvider.icon(iconName, 16));
         button.setContentDisplay(ContentDisplay.LEFT);
+    }
+
+    private List<ReservationRow> getSelectedRows() {
+        return new ArrayList<>(tableView.getSelectionModel().getSelectedItems());
+    }
+
+    private void approveSelected() {
+        List<ReservationRow> rows = getSelectedRows();
+        if (rows.isEmpty()) {
+            return;
+        }
+        int approved = 0;
+        for (ReservationRow row : rows) {
+            if (row.reservation().isPending()) {
+                libraryService.approveReservation(row.reservation().getId());
+                approved++;
+            }
+        }
+        if (approved > 0) {
+            showInfo("Đã duyệt", "Đã chấp nhận " + approved + " yêu cầu đặt trước.");
+        }
+        handleRefresh();
+    }
+
+    private void rejectSelected() {
+        List<ReservationRow> rows = getSelectedRows();
+        if (rows.isEmpty()) {
+            return;
+        }
+        int rejected = 0;
+        for (ReservationRow row : rows) {
+            if (row.reservation().isPending()) {
+                libraryService.rejectReservation(row.reservation().getId());
+                rejected++;
+            }
+        }
+        if (rejected > 0) {
+            showInfo("Đã từ chối", "Đã từ chối " + rejected + " yêu cầu đặt trước.");
+        }
+        handleRefresh();
+    }
+
+    private void fulfilSelected() {
+        List<ReservationRow> rows = getSelectedRows();
+        if (rows.isEmpty()) {
+            return;
+        }
+        int fulfilled = 0;
+        for (ReservationRow row : rows) {
+            if (row.reservation().isApproved()) {
+                libraryService.fulfilReservation(row.reservation().getId());
+                fulfilled++;
+            }
+        }
+        if (fulfilled > 0) {
+            showInfo("Hoàn tất", "Đã hoàn tất " + fulfilled + " yêu cầu đặt trước.");
+        }
+        handleRefresh();
+    }
+
+    private void cancelSelected() {
+        List<ReservationRow> rows = getSelectedRows();
+        if (rows.isEmpty()) {
+            return;
+        }
+        int cancelled = 0;
+        for (ReservationRow row : rows) {
+            if (adminMode || row.reservation().isPending() || row.reservation().isApproved()) {
+                libraryService.cancelReservation(row.reservation().getId());
+                cancelled++;
+            }
+        }
+        if (cancelled > 0) {
+            showInfo("Đã hủy", "Đã hủy " + cancelled + " yêu cầu đặt trước.");
+        }
+        handleRefresh();
+    }
+
+    private void applyFilters() {
+        if (pendingOnlyCheck == null) {
+            filteredReservations.setPredicate(row -> true);
+            return;
+        }
+        boolean pendingOnly = pendingOnlyCheck.isSelected();
+        filteredReservations.setPredicate(row -> !pendingOnly || row.reservation().isPending());
+    }
+
+    private void showInfo(String header, String message) {
+        Alert alert = new Alert(Alert.AlertType.INFORMATION, message);
+        alert.setHeaderText(header);
+        alert.showAndWait();
     }
 }

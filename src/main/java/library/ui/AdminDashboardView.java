@@ -1,5 +1,6 @@
 package library.ui;
 
+import javafx.application.Platform;
 import javafx.beans.property.SimpleBooleanProperty;
 import javafx.beans.property.SimpleStringProperty;
 import javafx.collections.FXCollections;
@@ -23,6 +24,7 @@ import library.service.LibraryService;
 import java.io.File;
 import java.nio.file.Path;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -42,10 +44,15 @@ public class AdminDashboardView {
 
     private final ObservableList<Book> masterBooks = FXCollections.observableArrayList();
     private final FilteredList<Book> filteredBooks = new FilteredList<>(masterBooks);
+    private final ObservableList<User> masterUsers = FXCollections.observableArrayList();
+    private final ObservableList<Loan> masterLoans = FXCollections.observableArrayList();
+    private final FilteredList<Loan> filteredLoans = new FilteredList<>(masterLoans);
     private TextField titleFilterField;
     private TextField authorFilterField;
     private ComboBox<String> categoryFilterBox;
     private CheckBox availableFilterCheck;
+    private ComboBox<String> loanStatusFilter;
+    private AutoCloseable changeSubscription;
 
     public AdminDashboardView(User currentUser, LibraryService libraryService, Runnable onLogout) {
         this.currentUser = Objects.requireNonNull(currentUser);
@@ -59,6 +66,7 @@ public class AdminDashboardView {
         root.setTop(createHeader());
         root.setCenter(createContent());
         refreshAllTables();
+        subscribeToChanges();
         return new Scene(root, 980, 640);
     }
 
@@ -72,7 +80,10 @@ public class AdminDashboardView {
 
         Button logoutButton = new Button("Đăng xuất");
         applyIcon(logoutButton, "action-button");
-        logoutButton.setOnAction(event -> onLogout.run());
+        logoutButton.setOnAction(event -> {
+            cleanup();
+            onLogout.run();
+        });
 
         BorderPane borderPane = new BorderPane();
         borderPane.setLeft(welcomeLabel);
@@ -265,8 +276,12 @@ public class AdminDashboardView {
     }
 
     private Tab createUsersTab() {
+        TableColumn<User, String> idColumn = new TableColumn<>("Mã");
+        idColumn.setCellValueFactory(data -> new SimpleStringProperty(String.valueOf(data.getValue().getId())));
         TableColumn<User, String> usernameColumn = new TableColumn<>("Tên đăng nhập");
         usernameColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getUsername()));
+        TableColumn<User, String> passwordColumn = new TableColumn<>("Mật khẩu");
+        passwordColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getPassword()));
         TableColumn<User, String> roleColumn = new TableColumn<>("Vai trò");
         roleColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getRole()));
         TableColumn<User, String> fullNameColumn = new TableColumn<>("Họ tên");
@@ -274,14 +289,20 @@ public class AdminDashboardView {
         TableColumn<User, String> emailColumn = new TableColumn<>("Email");
         emailColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getEmail()));
 
-        userTable.getColumns().setAll(usernameColumn, roleColumn, fullNameColumn, emailColumn);
+        userTable.getColumns().setAll(idColumn, usernameColumn, passwordColumn, roleColumn, fullNameColumn, emailColumn);
         userTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_ALL_COLUMNS);
+        userTable.getSelectionModel().setSelectionMode(SelectionMode.MULTIPLE);
+        userTable.setItems(masterUsers);
 
+        Button deleteButton = new Button("Xóa tài khoản");
         Button refreshButton = new Button("Làm mới");
+        applyIcon(deleteButton, "remove");
         applyIcon(refreshButton, "refresh");
+        deleteButton.setOnAction(event -> deleteSelectedUsers());
         refreshButton.setOnAction(event -> refreshUsers());
 
-        VBox container = new VBox(10, userTable, refreshButton);
+        HBox controls = new HBox(10, deleteButton, refreshButton);
+        VBox container = new VBox(10, userTable, controls);
         container.setPadding(new Insets(12));
         VBox.setVgrow(userTable, Priority.ALWAYS);
         Tab tab = new Tab("Người dùng", container);
@@ -312,10 +333,26 @@ public class AdminDashboardView {
 
         loanTable.getColumns().setAll(idColumn, bookColumn, userColumn, loanDateColumn, dueDateColumn, statusColumn, feeColumn);
         loanTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_ALL_COLUMNS);
+        loanTable.getSelectionModel().setSelectionMode(SelectionMode.MULTIPLE);
+        loanTable.setItems(filteredLoans);
 
-        Button approveButton = new Button("Duyệt");
-        Button rejectButton = new Button("Từ chối");
-        Button markReturnedButton = new Button("Đánh dấu đã trả");
+        loanStatusFilter = new ComboBox<>();
+        loanStatusFilter.getItems().setAll(
+                "Chờ duyệt",
+                "Đang mượn",
+                "Quá hạn",
+                "Đã trả",
+                "Đã từ chối",
+                "Tất cả");
+        loanStatusFilter.setValue("Chờ duyệt");
+        loanStatusFilter.valueProperty().addListener((obs, old, value) -> applyLoanFilters());
+
+        HBox filterBar = new HBox(10, new Label("Hiển thị:"), loanStatusFilter);
+        filterBar.setPadding(new Insets(0, 0, 8, 0));
+
+        Button approveButton = new Button("Duyệt đã chọn");
+        Button rejectButton = new Button("Từ chối đã chọn");
+        Button markReturnedButton = new Button("Đã trả");
         Button refreshButton = new Button("Làm mới");
 
         applyIcon(approveButton, "add");
@@ -323,48 +360,13 @@ public class AdminDashboardView {
         applyIcon(markReturnedButton, "loan");
         applyIcon(refreshButton, "refresh");
 
-        approveButton.setOnAction(event -> {
-            Loan selected = loanTable.getSelectionModel().getSelectedItem();
-            if (selected == null || !selected.isPending()) {
-                return;
-            }
-            try {
-                libraryService.approveLoan(selected.getId());
-                Alert alert = new Alert(Alert.AlertType.INFORMATION, "Đã duyệt yêu cầu mượn.");
-                alert.setHeaderText("Thành công");
-                alert.showAndWait();
-                refreshAllTables();
-            } catch (RuntimeException exception) {
-                Alert alert = new Alert(Alert.AlertType.ERROR, exception.getMessage());
-                alert.setHeaderText("Không thể duyệt");
-                alert.showAndWait();
-            }
-        });
-
-        rejectButton.setOnAction(event -> {
-            Loan selected = loanTable.getSelectionModel().getSelectedItem();
-            if (selected == null || !selected.isPending()) {
-                return;
-            }
-            libraryService.rejectLoan(selected.getId());
-            Alert alert = new Alert(Alert.AlertType.INFORMATION, "Đã từ chối yêu cầu mượn.");
-            alert.setHeaderText("Đã cập nhật");
-            alert.showAndWait();
-            refreshAllTables();
-        });
-
-        markReturnedButton.setOnAction(event -> {
-            Loan selected = loanTable.getSelectionModel().getSelectedItem();
-            if (selected == null || selected.isReturned() || selected.isPending() || selected.isRejected()) {
-                return;
-            }
-            libraryService.returnBook(selected);
-            refreshAllTables();
-        });
+        approveButton.setOnAction(event -> approveSelectedLoans());
+        rejectButton.setOnAction(event -> rejectSelectedLoans());
+        markReturnedButton.setOnAction(event -> markSelectedReturned());
         refreshButton.setOnAction(event -> refreshLoans());
 
         HBox controls = new HBox(10, approveButton, rejectButton, markReturnedButton, refreshButton);
-        VBox container = new VBox(10, loanTable, controls);
+        VBox container = new VBox(10, filterBar, loanTable, controls);
         container.setPadding(new Insets(12));
         VBox.setVgrow(loanTable, Priority.ALWAYS);
         Tab tab = new Tab("Phiếu mượn", container);
@@ -486,6 +488,21 @@ public class AdminDashboardView {
         }
     }
 
+    private void subscribeToChanges() {
+        cleanup();
+        changeSubscription = libraryService.onDataChanged(change -> Platform.runLater(this::refreshAllTables));
+    }
+
+    private void cleanup() {
+        if (changeSubscription != null) {
+            try {
+                changeSubscription.close();
+            } catch (Exception ignored) {
+            }
+            changeSubscription = null;
+        }
+    }
+
     private FileChooser createCsvFileChooser(String defaultFileName) {
         FileChooser chooser = new FileChooser();
         chooser.setTitle("Lưu file CSV");
@@ -511,12 +528,140 @@ public class AdminDashboardView {
 
     private void refreshUsers() {
         List<User> users = libraryService.getAllUsers();
-        userTable.setItems(FXCollections.observableArrayList(users));
+        masterUsers.setAll(users);
     }
 
     private void refreshLoans() {
         List<Loan> loans = libraryService.getAllLoans();
-        loanTable.setItems(FXCollections.observableArrayList(loans));
+        masterLoans.setAll(loans);
+        applyLoanFilters();
+    }
+
+    private void approveSelectedLoans() {
+        List<Loan> selected = new ArrayList<>(loanTable.getSelectionModel().getSelectedItems());
+        if (selected.isEmpty()) {
+            return;
+        }
+        int approved = 0;
+        List<String> errors = new ArrayList<>();
+        for (Loan loan : selected) {
+            if (!loan.isPending()) {
+                continue;
+            }
+            try {
+                libraryService.approveLoan(loan.getId());
+                approved++;
+            } catch (RuntimeException exception) {
+                errors.add("#" + loan.getId() + ": " + exception.getMessage());
+            }
+        }
+        loanTable.getSelectionModel().clearSelection();
+        refreshAllTables();
+        if (approved > 0) {
+            Alert alert = new Alert(Alert.AlertType.INFORMATION,
+                    "Đã duyệt " + approved + " yêu cầu mượn.");
+            alert.setHeaderText("Thành công");
+            alert.showAndWait();
+        }
+        if (!errors.isEmpty()) {
+            Alert alert = new Alert(Alert.AlertType.WARNING,
+                    String.join("\n", errors));
+            alert.setHeaderText("Một số yêu cầu không thể duyệt");
+            alert.showAndWait();
+        }
+    }
+
+    private void rejectSelectedLoans() {
+        List<Loan> selected = new ArrayList<>(loanTable.getSelectionModel().getSelectedItems());
+        if (selected.isEmpty()) {
+            return;
+        }
+        int rejected = 0;
+        for (Loan loan : selected) {
+            if (loan.isPending()) {
+                libraryService.rejectLoan(loan.getId());
+                rejected++;
+            }
+        }
+        loanTable.getSelectionModel().clearSelection();
+        refreshAllTables();
+        if (rejected > 0) {
+            Alert alert = new Alert(Alert.AlertType.INFORMATION,
+                    "Đã từ chối " + rejected + " yêu cầu mượn.");
+            alert.setHeaderText("Đã cập nhật");
+            alert.showAndWait();
+        }
+    }
+
+    private void markSelectedReturned() {
+        List<Loan> selected = new ArrayList<>(loanTable.getSelectionModel().getSelectedItems());
+        if (selected.isEmpty()) {
+            return;
+        }
+        int returned = 0;
+        for (Loan loan : selected) {
+            if (!loan.isPending() && !loan.isRejected() && !loan.isReturned()) {
+                libraryService.returnBook(loan);
+                returned++;
+            }
+        }
+        loanTable.getSelectionModel().clearSelection();
+        refreshAllTables();
+        if (returned > 0) {
+            Alert alert = new Alert(Alert.AlertType.INFORMATION,
+                    "Đã ghi nhận " + returned + " phiếu mượn đã trả.");
+            alert.setHeaderText("Hoàn tất");
+            alert.showAndWait();
+        }
+    }
+
+    private void deleteSelectedUsers() {
+        List<User> selected = new ArrayList<>(userTable.getSelectionModel().getSelectedItems());
+        if (selected.isEmpty()) {
+            return;
+        }
+        selected.removeIf(user -> user.getId() == currentUser.getId());
+        if (selected.isEmpty()) {
+            Alert alert = new Alert(Alert.AlertType.INFORMATION,
+                    "Không thể tự xóa tài khoản quản trị đang đăng nhập.");
+            alert.setHeaderText("Thao tác bị chặn");
+            alert.showAndWait();
+            return;
+        }
+        String joined = selected.stream()
+                .map(User::getUsername)
+                .collect(Collectors.joining(", "));
+        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
+                "Bạn có chắc muốn xóa các tài khoản: " + joined + "?");
+        confirm.setHeaderText("Xác nhận xóa tài khoản");
+        confirm.showAndWait()
+                .filter(response -> response == ButtonType.OK)
+                .ifPresent(response -> {
+                    for (User user : selected) {
+                        libraryService.deleteUser(user.getId());
+                    }
+                    refreshAllTables();
+                });
+    }
+
+    private void applyLoanFilters() {
+        if (loanStatusFilter == null) {
+            return;
+        }
+        String selected = loanStatusFilter.getValue();
+        filteredLoans.setPredicate(loan -> {
+            if (selected == null || selected.equals("Tất cả")) {
+                return true;
+            }
+            return switch (selected) {
+                case "Chờ duyệt" -> loan.isPending();
+                case "Đang mượn" -> "BORROWED".equalsIgnoreCase(loan.getStatus());
+                case "Quá hạn" -> "OVERDUE".equalsIgnoreCase(loan.getStatus());
+                case "Đã trả" -> loan.isReturned();
+                case "Đã từ chối" -> loan.isRejected();
+                default -> true;
+            };
+        });
     }
 
     private String resolveBookTitle(int bookId) {

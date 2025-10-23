@@ -11,14 +11,20 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Consumer;
 
 public class DatabaseManager {
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE;
 
     private final SimpleSqlDatabase database;
+    private final CopyOnWriteArrayList<Consumer<DataChange>> changeListeners = new CopyOnWriteArrayList<>();
 
     public DatabaseManager(Path storagePath) {
         this.database = new SimpleSqlDatabase(storagePath.toString());
@@ -112,6 +118,37 @@ public class DatabaseManager {
             database.update("INSERT INTO books (title, author, category, available, total_copies, available_copies) VALUES (?, ?, ?, ?, ?, ?)",
                     "Thuật toán nâng cao", "Phạm Văn C", "Công nghệ", true, 4, 4);
         }
+        notifyChange("users", "books");
+    }
+
+    public AutoCloseable addChangeListener(Consumer<DataChange> listener) {
+        changeListeners.add(listener);
+        return () -> removeChangeListener(listener);
+    }
+
+    public void removeChangeListener(Consumer<DataChange> listener) {
+        changeListeners.remove(listener);
+    }
+
+    private void notifyChange(String... tables) {
+        if (changeListeners.isEmpty()) {
+            return;
+        }
+        Set<String> affected = new LinkedHashSet<>();
+        if (tables != null) {
+            for (String table : tables) {
+                if (table != null && !table.isBlank()) {
+                    affected.add(table.toLowerCase(Locale.ROOT));
+                }
+            }
+        }
+        if (affected.isEmpty()) {
+            affected.add("*");
+        }
+        DataChange change = new DataChange(Collections.unmodifiableSet(affected), System.currentTimeMillis());
+        for (Consumer<DataChange> listener : changeListeners) {
+            listener.accept(change);
+        }
     }
 
     public User findUserByUsername(String username) {
@@ -144,7 +181,29 @@ public class DatabaseManager {
         database.update(
                 "INSERT INTO users (username, password, role, full_name, email) VALUES (?, ?, ?, ?, ?)",
                 username, password, role.toUpperCase(Locale.ROOT), fullName, email);
-        return findUserByUsername(username);
+        User created = findUserByUsername(username);
+        notifyChange("users");
+        return created;
+    }
+
+    public void deleteUser(int userId) {
+        List<Loan> loans = findLoansByUser(userId);
+        for (Loan loan : loans) {
+            if (!loan.isReturned() && !loan.isRejected() && !loan.isPending()) {
+                Book book = findBookById(loan.getBookId());
+                if (book != null) {
+                    int newAvailable = Math.min(book.getTotalCopies(), book.getAvailableCopies() + 1);
+                    database.update("UPDATE books SET available_copies = ?, available = ? WHERE id = ?",
+                            newAvailable,
+                            newAvailable > 0,
+                            book.getId());
+                }
+            }
+        }
+        database.update("DELETE FROM loans WHERE user_id = ?", userId);
+        database.update("DELETE FROM reservations WHERE user_id = ?", userId);
+        database.update("DELETE FROM users WHERE id = ?", userId);
+        notifyChange("users", "loans", "reservations", "books");
     }
 
     public List<Book> findAllBooks() {
@@ -183,7 +242,9 @@ public class DatabaseManager {
         if (result.isEmpty()) {
             return null;
         }
-        return toBook(result.get(result.size() - 1));
+        Book created = toBook(result.get(result.size() - 1));
+        notifyChange("books");
+        return created;
     }
 
     public void updateBook(Book book) {
@@ -197,10 +258,12 @@ public class DatabaseManager {
                 safeTotal,
                 safeAvailable,
                 book.getId());
+        notifyChange("books");
     }
 
     public void deleteBook(int bookId) {
         database.update("DELETE FROM books WHERE id = ?", bookId);
+        notifyChange("books");
     }
 
     public void decrementAvailableCopies(int bookId) {
@@ -213,6 +276,7 @@ public class DatabaseManager {
                 newAvailable,
                 newAvailable > 0,
                 bookId);
+        notifyChange("books");
     }
 
     public void incrementAvailableCopies(int bookId) {
@@ -225,6 +289,7 @@ public class DatabaseManager {
                 newAvailable,
                 newAvailable > 0,
                 bookId);
+        notifyChange("books");
     }
 
     public List<Loan> findAllLoans() {
@@ -272,7 +337,9 @@ public class DatabaseManager {
                 "PENDING");
         List<Map<String, Object>> rows = database.query(
                 "SELECT * FROM loans WHERE book_id = ? AND user_id = ?", bookId, userId);
-        return toLoan(rows.get(rows.size() - 1));
+        Loan created = toLoan(rows.get(rows.size() - 1));
+        notifyChange("loans");
+        return created;
     }
 
     public Loan approveLoan(int loanId, int loanPeriodDays) {
@@ -300,7 +367,9 @@ public class DatabaseManager {
                 0.0,
                 loanId);
         decrementAvailableCopies(book.getId());
-        return findLoanById(loanId);
+        Loan updated = findLoanById(loanId);
+        notifyChange("loans", "books");
+        return updated;
     }
 
     public Loan rejectLoan(int loanId) {
@@ -311,7 +380,9 @@ public class DatabaseManager {
         if (loan.isPending()) {
             database.update("UPDATE loans SET status = ? WHERE id = ?", "REJECTED", loanId);
         }
-        return findLoanById(loanId);
+        Loan updated = findLoanById(loanId);
+        notifyChange("loans");
+        return updated;
     }
 
     public void markLoanReturned(int loanId, LocalDate returnDate) {
@@ -322,11 +393,13 @@ public class DatabaseManager {
         database.update("UPDATE loans SET status = ?, return_date = ? WHERE id = ?",
                 "RETURNED", returnDate.format(DATE_FORMATTER), loanId);
         incrementAvailableCopies(loan.getBookId());
+        notifyChange("loans");
     }
 
     public void refreshLoanStatuses() {
         List<Map<String, Object>> rows = database.query("SELECT * FROM loans");
         LocalDate today = LocalDate.now();
+        boolean changed = false;
         for (Map<String, Object> row : rows) {
             String status = (String) row.get("status");
             if ("RETURNED".equalsIgnoreCase(status) || "REJECTED".equalsIgnoreCase(status) || "PENDING".equalsIgnoreCase(status)) {
@@ -350,7 +423,11 @@ public class DatabaseManager {
                         newStatus,
                         newFee,
                         ((Number) row.get("id")).intValue());
+                changed = true;
             }
+        }
+        if (changed) {
+            notifyChange("loans");
         }
     }
 
@@ -380,23 +457,32 @@ public class DatabaseManager {
                 "PENDING");
         List<Map<String, Object>> rows = database.query(
                 "SELECT * FROM reservations WHERE book_id = ? AND user_id = ?", bookId, userId);
-        return toReservation(rows.get(rows.size() - 1));
+        Reservation reservation = toReservation(rows.get(rows.size() - 1));
+        notifyChange("reservations");
+        return reservation;
     }
 
     public void cancelReservation(int reservationId) {
         database.update("UPDATE reservations SET status = ? WHERE id = ?", "CANCELLED", reservationId);
+        notifyChange("reservations");
     }
 
     public void approveReservation(int reservationId) {
         database.update("UPDATE reservations SET status = ? WHERE id = ?", "APPROVED", reservationId);
+        notifyChange("reservations");
     }
 
     public void rejectReservation(int reservationId) {
         database.update("UPDATE reservations SET status = ? WHERE id = ?", "REJECTED", reservationId);
+        notifyChange("reservations");
     }
 
     public void fulfilReservation(int reservationId) {
         database.update("UPDATE reservations SET status = ? WHERE id = ?", "FULFILLED", reservationId);
+        notifyChange("reservations");
+    }
+
+    public record DataChange(Set<String> tables, long timestamp) {
     }
 
     private User toUser(Map<String, Object> row) {

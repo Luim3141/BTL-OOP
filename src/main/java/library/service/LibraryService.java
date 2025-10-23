@@ -11,6 +11,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.function.Consumer;
 
 public class LibraryService {
     private static final int DEFAULT_LOAN_PERIOD_DAYS = 14;
@@ -90,6 +91,10 @@ public class LibraryService {
         return databaseManager.findAllUsers();
     }
 
+    public void deleteUser(int userId) {
+        databaseManager.deleteUser(userId);
+    }
+
     public List<Reservation> getAllReservations() {
         return databaseManager.findAllReservations();
     }
@@ -116,6 +121,10 @@ public class LibraryService {
 
     public void fulfilReservation(int reservationId) {
         databaseManager.fulfilReservation(reservationId);
+    }
+
+    public AutoCloseable onDataChanged(Consumer<DatabaseManager.DataChange> listener) {
+        return databaseManager.addChangeListener(listener);
     }
 
     public Path exportReport(Path directory) {
