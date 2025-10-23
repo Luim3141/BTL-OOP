@@ -97,6 +97,18 @@ public class LibraryService {
             Files.createDirectories(directory);
             String fileName = "library-report-" + LocalDate.now() + ".csv";
             Path reportFile = directory.resolve(fileName);
+            return exportReportToFile(reportFile);
+        } catch (IOException e) {
+            throw new RuntimeException("Không thể xuất báo cáo", e);
+        }
+    }
+
+    public Path exportReportToFile(Path file) {
+        try {
+            Path parent = file.toAbsolutePath().getParent();
+            if (parent != null) {
+                Files.createDirectories(parent);
+            }
             List<Book> books = getAllBooks();
             List<User> users = getAllUsers();
             List<Loan> loans = getAllLoans();
@@ -107,7 +119,7 @@ public class LibraryService {
             double totalFees = loans.stream().mapToDouble(Loan::getAccruedFee).sum();
             long activeReservations = reservations.stream().filter(Reservation::isActive).count();
 
-            try (BufferedWriter writer = Files.newBufferedWriter(reportFile)) {
+            try (BufferedWriter writer = Files.newBufferedWriter(file)) {
                 writer.write("Section,Metric,Value\n");
                 writer.write("Books,Total," + books.size() + "\n");
                 writer.write("Books,Available," + availableBooks + "\n");
@@ -130,9 +142,61 @@ public class LibraryService {
                     writer.write("\n");
                 }
             }
-            return reportFile;
+            return file;
         } catch (IOException e) {
             throw new RuntimeException("Không thể xuất báo cáo", e);
         }
+    }
+
+    public Path exportUserSnapshot(int userId, Path file) {
+        try {
+            Path parent = file.toAbsolutePath().getParent();
+            if (parent != null) {
+                Files.createDirectories(parent);
+            }
+            User user = databaseManager.findUserById(userId);
+            if (user == null) {
+                throw new IllegalArgumentException("Không tìm thấy người dùng với id=" + userId);
+            }
+            List<Loan> loans = databaseManager.findLoansByUser(userId);
+            List<Reservation> reservations = databaseManager.findReservationsByUser(userId);
+            try (BufferedWriter writer = Files.newBufferedWriter(file)) {
+                writer.write("Thông tin người dùng\n");
+                writer.write("Tài khoản," + user.getUsername() + "\n");
+                writer.write("Họ tên," + safe(user.getFullName()) + "\n");
+                writer.write("Email," + safe(user.getEmail()) + "\n\n");
+
+                writer.write("Phiếu mượn\n");
+                writer.write("Loan ID,Book ID,Loan Date,Due Date,Status,Fee\n");
+                for (Loan loan : loans) {
+                    writer.write(String.join(",",
+                            String.valueOf(loan.getId()),
+                            String.valueOf(loan.getBookId()),
+                            loan.getLoanDate().toString(),
+                            loan.getDueDate().toString(),
+                            loan.getStatus(),
+                            String.valueOf(loan.getAccruedFee())));
+                    writer.write("\n");
+                }
+
+                writer.write("\nĐặt trước\n");
+                writer.write("Reservation ID,Book ID,Reservation Date,Status\n");
+                for (Reservation reservation : reservations) {
+                    writer.write(String.join(",",
+                            String.valueOf(reservation.getId()),
+                            String.valueOf(reservation.getBookId()),
+                            reservation.getReservationDate().toString(),
+                            reservation.getStatus()));
+                    writer.write("\n");
+                }
+            }
+            return file;
+        } catch (IOException e) {
+            throw new RuntimeException("Không thể xuất dữ liệu người dùng", e);
+        }
+    }
+
+    private String safe(String value) {
+        return value == null ? "" : value;
     }
 }

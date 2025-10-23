@@ -11,12 +11,16 @@ import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
+import javafx.stage.FileChooser;
+import javafx.stage.Window;
 import library.model.Book;
 import library.model.Loan;
 import library.model.User;
 import library.service.LibraryService;
 
+import java.io.File;
 import java.nio.file.Path;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Objects;
 
@@ -50,7 +54,11 @@ public class AdminDashboardView {
                 ? currentUser.getUsername()
                 : currentUser.getFullName();
         Label welcomeLabel = new Label("Xin chào, " + displayName + " (Quản trị)");
+        welcomeLabel.setGraphic(IconProvider.icon("dashboard", 18));
+        welcomeLabel.setContentDisplay(ContentDisplay.LEFT);
+
         Button logoutButton = new Button("Đăng xuất");
+        applyIcon(logoutButton, "action-button");
         logoutButton.setOnAction(event -> onLogout.run());
 
         BorderPane borderPane = new BorderPane();
@@ -101,6 +109,11 @@ public class AdminDashboardView {
         Button deleteButton = new Button("Xóa");
         Button refreshButton = new Button("Làm mới");
 
+        applyIcon(addButton, "add");
+        applyIcon(editButton, "pencil");
+        applyIcon(deleteButton, "remove");
+        applyIcon(refreshButton, "refresh");
+
         addButton.setOnAction(event -> showBookDialog(null));
         editButton.setOnAction(event -> {
             Book selected = bookTable.getSelectionModel().getSelectedItem();
@@ -130,7 +143,9 @@ public class AdminDashboardView {
         VBox container = new VBox(10, bookTable, controls);
         container.setPadding(new Insets(12));
         VBox.setVgrow(bookTable, Priority.ALWAYS);
-        return new Tab("Sách", container);
+        Tab tab = new Tab("Sách", container);
+        tab.setGraphic(IconProvider.icon("book", 18));
+        return tab;
     }
 
     private void showBookDialog(Book book) {
@@ -186,12 +201,15 @@ public class AdminDashboardView {
         userTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_ALL_COLUMNS);
 
         Button refreshButton = new Button("Làm mới");
+        applyIcon(refreshButton, "refresh");
         refreshButton.setOnAction(event -> refreshUsers());
 
         VBox container = new VBox(10, userTable, refreshButton);
         container.setPadding(new Insets(12));
         VBox.setVgrow(userTable, Priority.ALWAYS);
-        return new Tab("Người dùng", container);
+        Tab tab = new Tab("Người dùng", container);
+        tab.setGraphic(IconProvider.icon("users", 18));
+        return tab;
     }
 
     private Tab createLoansTab() {
@@ -210,11 +228,19 @@ public class AdminDashboardView {
         TableColumn<Loan, String> feeColumn = new TableColumn<>("Phí");
         feeColumn.setCellValueFactory(data -> new SimpleStringProperty(String.format("%.0f", data.getValue().getAccruedFee())));
 
+        loanDateColumn.setGraphic(IconProvider.icon("calendar", 16));
+        dueDateColumn.setGraphic(IconProvider.icon("clock", 16));
+        statusColumn.setGraphic(IconProvider.icon("overdue", 16));
+        feeColumn.setGraphic(IconProvider.icon("report", 16));
+
         loanTable.getColumns().setAll(idColumn, bookColumn, userColumn, loanDateColumn, dueDateColumn, statusColumn, feeColumn);
         loanTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_ALL_COLUMNS);
 
         Button markReturnedButton = new Button("Đánh dấu đã trả");
         Button refreshButton = new Button("Làm mới");
+
+        applyIcon(markReturnedButton, "loan");
+        applyIcon(refreshButton, "refresh");
 
         markReturnedButton.setOnAction(event -> {
             Loan selected = loanTable.getSelectionModel().getSelectedItem();
@@ -230,27 +256,53 @@ public class AdminDashboardView {
         VBox container = new VBox(10, loanTable, controls);
         container.setPadding(new Insets(12));
         VBox.setVgrow(loanTable, Priority.ALWAYS);
-        return new Tab("Phiếu mượn", container);
+        Tab tab = new Tab("Phiếu mượn", container);
+        tab.setGraphic(IconProvider.icon("loan", 18));
+        return tab;
     }
 
     private Tab createReservationsTab() {
         reservationsPanel = new ReservationsPanel(libraryService, this::refreshAllTables, true);
-        return new Tab("Đặt trước", reservationsPanel);
+        Tab tab = new Tab("Đặt trước", reservationsPanel);
+        tab.setGraphic(IconProvider.icon("reservation", 18));
+        return tab;
     }
 
     private Tab createReportsTab() {
         Button exportButton = new Button("Xuất báo cáo CSV");
+        applyIcon(exportButton, "export");
         Label infoLabel = new Label("Báo cáo tổng hợp gồm số liệu sách, người dùng, phiếu mượn và đặt trước.");
+        infoLabel.setGraphic(IconProvider.icon("analytics", 18));
+        infoLabel.setContentDisplay(ContentDisplay.LEFT);
         exportButton.setOnAction(event -> {
-            Path reportPath = libraryService.exportReport(Path.of("reports"));
-            Alert alert = new Alert(Alert.AlertType.INFORMATION,
-                    "Đã xuất báo cáo: " + reportPath.toAbsolutePath());
-            alert.setHeaderText("Xuất báo cáo thành công");
-            alert.showAndWait();
+            FileChooser chooser = createCsvFileChooser("library-report-" + LocalDate.now() + ".csv");
+            File destination = chooser.showSaveDialog(resolveWindow(exportButton));
+            if (destination == null) {
+                return;
+            }
+            try {
+                Path reportPath = libraryService.exportReportToFile(destination.toPath());
+                Alert alert = new Alert(Alert.AlertType.INFORMATION,
+                        "Đã xuất báo cáo: " + reportPath.toAbsolutePath());
+                alert.setHeaderText("Xuất báo cáo thành công");
+                alert.showAndWait();
+            } catch (RuntimeException exception) {
+                Alert alert = new Alert(Alert.AlertType.ERROR,
+                        "Không thể xuất báo cáo: " + exception.getMessage());
+                alert.setHeaderText("Lỗi");
+                alert.showAndWait();
+            }
         });
         VBox box = new VBox(12, infoLabel, exportButton);
         box.setPadding(new Insets(16));
-        return new Tab("Báo cáo", box);
+        Tab tab = new Tab("Báo cáo", box);
+        tab.setGraphic(IconProvider.icon("report", 18));
+        return tab;
+    }
+
+    private void applyIcon(Button button, String iconName) {
+        button.setGraphic(IconProvider.icon(iconName, 18));
+        button.setContentDisplay(ContentDisplay.LEFT);
     }
 
     private void refreshAllTables() {
@@ -260,6 +312,22 @@ public class AdminDashboardView {
         if (reservationsPanel != null) {
             reservationsPanel.refresh();
         }
+    }
+
+    private FileChooser createCsvFileChooser(String defaultFileName) {
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle("Lưu file CSV");
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("CSV", "*.csv"));
+        chooser.setInitialFileName(defaultFileName);
+        File home = new File(System.getProperty("user.home", "."));
+        if (home.isDirectory()) {
+            chooser.setInitialDirectory(home);
+        }
+        return chooser;
+    }
+
+    private Window resolveWindow(Control control) {
+        return control.getScene() == null ? null : control.getScene().getWindow();
     }
 
     private void refreshBooks() {

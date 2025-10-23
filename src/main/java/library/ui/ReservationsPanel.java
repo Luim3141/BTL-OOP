@@ -68,6 +68,10 @@ public class ReservationsPanel extends VBox {
         Button cancelButton = new Button("Hủy");
         Button refreshButton = new Button("Làm mới");
 
+        applyIcon(fulfilButton, "loan");
+        applyIcon(cancelButton, "remove");
+        applyIcon(refreshButton, "refresh");
+
         fulfilButton.setOnAction(event -> {
             ReservationRow row = tableView.getSelectionModel().getSelectedItem();
             if (row == null || !row.reservation().isActive()) {
@@ -121,5 +125,10 @@ public class ReservationsPanel extends VBox {
     }
 
     private record ReservationRow(Reservation reservation, String bookTitle, String username) {
+    }
+
+    private void applyIcon(Button button, String iconName) {
+        button.setGraphic(IconProvider.icon(iconName, 16));
+        button.setContentDisplay(ContentDisplay.LEFT);
     }
 }

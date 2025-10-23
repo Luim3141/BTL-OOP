@@ -30,6 +30,10 @@ public class DatabaseManager {
         return database;
     }
 
+    public void close() {
+        database.close();
+    }
+
     private void initialiseSchema() {
         database.execute("CREATE TABLE IF NOT EXISTS users (" +
                 "id INTEGER PRIMARY KEY AUTOINCREMENT," +

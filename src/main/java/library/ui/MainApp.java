@@ -14,14 +14,21 @@ public class MainApp extends Application {
     private DatabaseManager databaseManager;
     private AuthService authService;
     private LibraryService libraryService;
-
     @Override
     public void start(Stage primaryStage) {
         databaseManager = new DatabaseManager(Path.of("data/library.db"));
         authService = new AuthService(databaseManager);
         libraryService = new LibraryService(databaseManager);
 
+        primaryStage.getIcons().setAll(IconProvider.image("book"), IconProvider.image("reader"));
         showLogin(primaryStage);
+    }
+
+    @Override
+    public void stop() {
+        if (databaseManager != null) {
+            databaseManager.close();
+        }
     }
 
     private void showLogin(Stage stage) {
@@ -42,5 +49,6 @@ public class MainApp extends Application {
             stage.setTitle("Thư viện - Người dùng");
             stage.setScene(userView.createScene());
         }
+        stage.show();
     }
 }

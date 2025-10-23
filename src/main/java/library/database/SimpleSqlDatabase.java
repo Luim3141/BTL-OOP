@@ -347,6 +347,10 @@ public class SimpleSqlDatabase {
         return sql.trim().replaceAll(";+$", "");
     }
 
+    public synchronized void close() {
+        persist();
+    }
+
     private void persist() {
         try {
             Files.createDirectories(storageFile.getParent());

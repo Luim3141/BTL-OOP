@@ -33,6 +33,8 @@ public class LoginView {
 
         Tab loginTab = new Tab("Đăng nhập", createLoginForm(messageLabel));
         Tab registerTab = new Tab("Đăng ký", createRegisterForm(messageLabel));
+        loginTab.setGraphic(IconProvider.icon("action-button", 18));
+        registerTab.setGraphic(IconProvider.icon("reader", 18));
         tabPane.getTabs().addAll(loginTab, registerTab);
 
         VBox container = new VBox(10, tabPane, messageLabel);
@@ -49,6 +51,7 @@ public class LoginView {
         TextField usernameField = new TextField();
         PasswordField passwordField = new PasswordField();
         Button loginButton = new Button("Đăng nhập");
+        applyIcon(loginButton, "action-button");
 
         grid.add(new Label("Tên đăng nhập"), 0, 0);
         grid.add(usernameField, 1, 0);
@@ -86,6 +89,7 @@ public class LoginView {
         TextField fullNameField = new TextField();
         TextField emailField = new TextField();
         Button registerButton = new Button("Đăng ký và đăng nhập");
+        applyIcon(registerButton, "add");
 
         grid.add(new Label("Tên đăng nhập"), 0, 0);
         grid.add(usernameField, 1, 0);
@@ -123,5 +127,10 @@ public class LoginView {
         BorderPane borderPane = new BorderPane(grid);
         BorderPane.setMargin(grid, new Insets(16));
         return borderPane;
+    }
+
+    private void applyIcon(Button button, String iconName) {
+        button.setGraphic(IconProvider.icon(iconName, 16));
+        button.setContentDisplay(ContentDisplay.LEFT);
     }
 }
