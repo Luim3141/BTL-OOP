@@ -2,6 +2,7 @@ package library.service;
 
 import library.database.SimpleSqlDatabase;
 import library.model.Book;
+import library.model.BorrowedBookSnapshot;
 import library.model.Loan;
 import library.model.Reservation;
 import library.model.User;
@@ -19,6 +20,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 public class DatabaseManager {
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE;
@@ -516,6 +518,61 @@ public class DatabaseManager {
     public void fulfilReservation(int reservationId) {
         database.update("UPDATE reservations SET status = ? WHERE id = ?", "FULFILLED", reservationId);
         notifyChange("reservations");
+    }
+
+    public List<BorrowedBookSnapshot> findBorrowedBooksForUser(int userId) {
+        User user = findUserById(userId);
+        if (user == null) {
+            return List.of();
+        }
+        Map<Integer, Book> booksById = findAllBooks().stream()
+                .collect(Collectors.toMap(Book::getId, book -> book));
+        List<Loan> loans = findLoansByUser(userId);
+        List<BorrowedBookSnapshot> snapshots = new ArrayList<>();
+        for (Loan loan : loans) {
+            if (!loan.isActive()) {
+                continue;
+            }
+            Book book = booksById.get(loan.getBookId());
+            snapshots.add(toBorrowedSnapshot(loan, user, book));
+        }
+        return snapshots;
+    }
+
+    public List<BorrowedBookSnapshot> findAllBorrowedBooks() {
+        Map<Integer, Book> booksById = findAllBooks().stream()
+                .collect(Collectors.toMap(Book::getId, book -> book));
+        Map<Integer, User> usersById = findAllUsers().stream()
+                .collect(Collectors.toMap(User::getId, user -> user));
+        List<Loan> loans = findAllLoans();
+        List<BorrowedBookSnapshot> snapshots = new ArrayList<>();
+        for (Loan loan : loans) {
+            if (!loan.isActive()) {
+                continue;
+            }
+            User user = usersById.get(loan.getUserId());
+            Book book = booksById.get(loan.getBookId());
+            if (user != null) {
+                snapshots.add(toBorrowedSnapshot(loan, user, book));
+            }
+        }
+        return snapshots;
+    }
+
+    private BorrowedBookSnapshot toBorrowedSnapshot(Loan loan, User user, Book book) {
+        int remainingCopies = book == null ? 0 : book.getAvailableCopies();
+        String title = book == null ? "#" + loan.getBookId() : book.getTitle();
+        long daysRemaining = ChronoUnit.DAYS.between(LocalDate.now(), loan.getDueDate());
+        return new BorrowedBookSnapshot(loan.getId(),
+                user.getId(),
+                user.getUsername(),
+                loan.getBookId(),
+                title,
+                loan.getLoanDate(),
+                loan.getDueDate(),
+                daysRemaining,
+                loan.getStatus(),
+                remainingCopies);
     }
 
     public record DataChange(Set<String> tables, long timestamp) {

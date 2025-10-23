@@ -221,11 +221,11 @@ public class ReservationsPanel extends VBox {
     }
 
     private void applyFilters() {
-        if (pendingOnlyCheck == null) {
-            filteredReservations.setPredicate(row -> true);
+        if (!adminMode) {
+            filteredReservations.setPredicate(row -> row.reservation().isPending());
             return;
         }
-        boolean pendingOnly = pendingOnlyCheck.isSelected();
+        boolean pendingOnly = pendingOnlyCheck != null && pendingOnlyCheck.isSelected();
         filteredReservations.setPredicate(row -> !pendingOnly || row.reservation().isPending());
     }
 

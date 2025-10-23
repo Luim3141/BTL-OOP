@@ -22,9 +22,11 @@ import library.service.LibraryService;
 
 import java.io.File;
 import java.nio.file.Path;
+import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
-import java.util.Objects;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
@@ -40,11 +42,14 @@ public class UserDashboardView {
 
     private final ObservableList<Book> masterBooks = FXCollections.observableArrayList();
     private final FilteredList<Book> filteredBooks = new FilteredList<>(masterBooks);
+    private final ObservableList<Loan> masterLoans = FXCollections.observableArrayList();
     private TextField titleFilterField;
     private TextField authorFilterField;
     private ComboBox<String> categoryFilterBox;
     private CheckBox availableFilterCheck;
     private AutoCloseable changeSubscription;
+    private Label activeLoanCountLabel;
+    private Label pendingLoanCountLabel;
 
     public UserDashboardView(User currentUser, LibraryService libraryService, Runnable onLogout) {
         this.currentUser = Objects.requireNonNull(currentUser);
@@ -181,14 +186,18 @@ public class UserDashboardView {
         statusColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getStatus()));
         TableColumn<Loan, String> feeColumn = new TableColumn<>("Phí");
         feeColumn.setCellValueFactory(data -> new SimpleStringProperty(String.format("%.0f", data.getValue().getAccruedFee())));
+        TableColumn<Loan, String> remainingColumn = new TableColumn<>("Ngày còn lại");
+        remainingColumn.setCellValueFactory(data -> new SimpleStringProperty(formatRemainingDays(data.getValue())));
 
         loanDateColumn.setGraphic(IconProvider.icon("calendar", 16));
         dueDateColumn.setGraphic(IconProvider.icon("clock", 16));
         statusColumn.setGraphic(IconProvider.icon("overdue", 16));
         feeColumn.setGraphic(IconProvider.icon("report", 16));
+        remainingColumn.setGraphic(IconProvider.icon("clock", 16));
 
-        loanTable.getColumns().setAll(bookColumn, loanDateColumn, dueDateColumn, statusColumn, feeColumn);
+        loanTable.getColumns().setAll(bookColumn, loanDateColumn, dueDateColumn, remainingColumn, statusColumn, feeColumn);
         loanTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_ALL_COLUMNS);
+        loanTable.setItems(masterLoans);
 
         Button refreshButton = new Button("Làm mới");
         applyButtonIcon(refreshButton, "refresh");
@@ -198,13 +207,21 @@ public class UserDashboardView {
         applyButtonIcon(downloadButton, "export");
         downloadButton.setOnAction(event -> exportUserSnapshot());
 
+        activeLoanCountLabel = new Label();
+        activeLoanCountLabel.setGraphic(IconProvider.icon("loan", 16));
+        activeLoanCountLabel.setContentDisplay(ContentDisplay.LEFT);
+
+        pendingLoanCountLabel = new Label();
+        pendingLoanCountLabel.setGraphic(IconProvider.icon("reservation", 16));
+        pendingLoanCountLabel.setContentDisplay(ContentDisplay.LEFT);
+
         HBox controls = new HBox(10, refreshButton, downloadButton);
 
-        VBox container = new VBox(10, loanTable, controls);
+        VBox container = new VBox(10, loanTable, activeLoanCountLabel, pendingLoanCountLabel, controls);
         container.setPadding(new Insets(12));
         VBox.setVgrow(loanTable, Priority.ALWAYS);
         Tab tab = new Tab("Phiếu mượn", container);
-        tab.setGraphic(IconProvider.icon("clock", 18));
+        tab.setGraphic(IconProvider.icon("loan", 18));
         return tab;
     }
 
@@ -243,6 +260,26 @@ public class UserDashboardView {
         refreshAll();
     }
 
+    private String formatRemainingDays(Loan loan) {
+        if (loan.isPending()) {
+            return "Chờ duyệt";
+        }
+        if (loan.isRejected()) {
+            return "Đã từ chối";
+        }
+        if (loan.isReturned()) {
+            return "Đã trả";
+        }
+        long days = ChronoUnit.DAYS.between(LocalDate.now(), loan.getDueDate());
+        if (days > 0) {
+            return days + " ngày";
+        }
+        if (days == 0) {
+            return "Hạn hôm nay";
+        }
+        return "Trễ " + Math.abs(days) + " ngày";
+    }
+
     private void refreshAll() {
         refreshBooks();
         refreshLoans();
@@ -275,7 +312,18 @@ public class UserDashboardView {
 
     private void refreshLoans() {
         List<Loan> loans = libraryService.getLoansForUser(currentUser.getId());
-        loanTable.setItems(FXCollections.observableArrayList(loans));
+        List<Loan> visibleLoans = loans.stream()
+                .filter(loan -> !loan.isPending())
+                .collect(Collectors.toList());
+        masterLoans.setAll(visibleLoans);
+        long activeCount = visibleLoans.stream().filter(Loan::isActive).count();
+        long pendingCount = loans.stream().filter(Loan::isPending).count();
+        if (activeLoanCountLabel != null) {
+            activeLoanCountLabel.setText("Đang mượn: " + activeCount);
+        }
+        if (pendingLoanCountLabel != null) {
+            pendingLoanCountLabel.setText("Chờ duyệt: " + pendingCount);
+        }
     }
 
     private void updateCategoryFilterOptions() {

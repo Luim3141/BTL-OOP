@@ -17,6 +17,7 @@ import javafx.scene.layout.VBox;
 import javafx.stage.FileChooser;
 import javafx.stage.Window;
 import library.model.Book;
+import library.model.BorrowedBookSnapshot;
 import library.model.Loan;
 import library.model.User;
 import library.service.LibraryService;
@@ -40,6 +41,7 @@ public class AdminDashboardView {
     private final TableView<Book> bookTable = new TableView<>();
     private final TableView<User> userTable = new TableView<>();
     private final TableView<Loan> loanTable = new TableView<>();
+    private final TableView<BorrowedBookSnapshot> borrowSummaryTable = new TableView<>();
     private ReservationsPanel reservationsPanel;
 
     private final ObservableList<Book> masterBooks = FXCollections.observableArrayList();
@@ -47,12 +49,15 @@ public class AdminDashboardView {
     private final ObservableList<User> masterUsers = FXCollections.observableArrayList();
     private final ObservableList<Loan> masterLoans = FXCollections.observableArrayList();
     private final FilteredList<Loan> filteredLoans = new FilteredList<>(masterLoans);
+    private final ObservableList<BorrowedBookSnapshot> borrowSummaries = FXCollections.observableArrayList();
     private TextField titleFilterField;
     private TextField authorFilterField;
     private ComboBox<String> categoryFilterBox;
     private CheckBox availableFilterCheck;
     private ComboBox<String> loanStatusFilter;
     private AutoCloseable changeSubscription;
+    private Map<Integer, Long> activeLoanCountByUser = Map.of();
+    private Label borrowSummaryTotalLabel;
 
     public AdminDashboardView(User currentUser, LibraryService libraryService, Runnable onLogout) {
         this.currentUser = Objects.requireNonNull(currentUser);
@@ -98,6 +103,7 @@ public class AdminDashboardView {
                 createBooksTab(),
                 createUsersTab(),
                 createLoansTab(),
+                createBorrowedSummaryTab(),
                 createReservationsTab(),
                 createReportsTab());
         tabPane.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
@@ -284,12 +290,16 @@ public class AdminDashboardView {
         passwordColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getPassword()));
         TableColumn<User, String> roleColumn = new TableColumn<>("Vai trò");
         roleColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getRole()));
+        TableColumn<User, String> activeLoansColumn = new TableColumn<>("Đang mượn");
+        activeLoansColumn.setCellValueFactory(data -> new SimpleStringProperty(String.valueOf(
+                activeLoanCountByUser.getOrDefault(data.getValue().getId(), 0L))));
         TableColumn<User, String> fullNameColumn = new TableColumn<>("Họ tên");
         fullNameColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getFullName()));
         TableColumn<User, String> emailColumn = new TableColumn<>("Email");
         emailColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getEmail()));
 
-        userTable.getColumns().setAll(idColumn, usernameColumn, passwordColumn, roleColumn, fullNameColumn, emailColumn);
+        userTable.getColumns().setAll(idColumn, usernameColumn, passwordColumn, roleColumn, activeLoansColumn,
+                fullNameColumn, emailColumn);
         userTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_ALL_COLUMNS);
         userTable.getSelectionModel().setSelectionMode(SelectionMode.MULTIPLE);
         userTable.setItems(masterUsers);
@@ -371,6 +381,45 @@ public class AdminDashboardView {
         VBox.setVgrow(loanTable, Priority.ALWAYS);
         Tab tab = new Tab("Phiếu mượn", container);
         tab.setGraphic(IconProvider.icon("loan", 18));
+        return tab;
+    }
+
+    private Tab createBorrowedSummaryTab() {
+        TableColumn<BorrowedBookSnapshot, String> loanIdColumn = new TableColumn<>("Phiếu");
+        loanIdColumn.setCellValueFactory(data -> new SimpleStringProperty("#" + data.getValue().getLoanId()));
+        TableColumn<BorrowedBookSnapshot, String> userColumn = new TableColumn<>("Người dùng");
+        userColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getUsername()));
+        TableColumn<BorrowedBookSnapshot, String> bookColumn = new TableColumn<>("Sách");
+        bookColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getBookTitle()));
+        TableColumn<BorrowedBookSnapshot, String> loanDateColumn = new TableColumn<>("Ngày mượn");
+        loanDateColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getLoanDate().toString()));
+        TableColumn<BorrowedBookSnapshot, String> dueDateColumn = new TableColumn<>("Hạn trả");
+        dueDateColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getDueDate().toString()));
+        TableColumn<BorrowedBookSnapshot, String> remainingColumn = new TableColumn<>("Ngày còn lại");
+        remainingColumn.setCellValueFactory(data -> new SimpleStringProperty(formatRemainingDays(data.getValue())));
+        TableColumn<BorrowedBookSnapshot, String> statusColumn = new TableColumn<>("Trạng thái");
+        statusColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getStatus()));
+        TableColumn<BorrowedBookSnapshot, String> stockColumn = new TableColumn<>("Bản còn lại");
+        stockColumn.setCellValueFactory(data -> new SimpleStringProperty(String.valueOf(data.getValue().getRemainingCopies())));
+
+        borrowSummaryTable.getColumns().setAll(loanIdColumn, userColumn, bookColumn, loanDateColumn, dueDateColumn,
+                remainingColumn, statusColumn, stockColumn);
+        borrowSummaryTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_ALL_COLUMNS);
+        borrowSummaryTable.setItems(borrowSummaries);
+
+        Label infoLabel = new Label("Theo dõi các phiếu mượn đang hoạt động kèm tồn kho thực tế.");
+        infoLabel.setGraphic(IconProvider.icon("analytics", 16));
+        infoLabel.setContentDisplay(ContentDisplay.LEFT);
+
+        borrowSummaryTotalLabel = new Label();
+        borrowSummaryTotalLabel.setGraphic(IconProvider.icon("loan", 16));
+        borrowSummaryTotalLabel.setContentDisplay(ContentDisplay.LEFT);
+
+        VBox container = new VBox(10, infoLabel, borrowSummaryTable, borrowSummaryTotalLabel);
+        container.setPadding(new Insets(12));
+        VBox.setVgrow(borrowSummaryTable, Priority.ALWAYS);
+        Tab tab = new Tab("Đang mượn", container);
+        tab.setGraphic(IconProvider.icon("analytics", 18));
         return tab;
     }
 
@@ -479,6 +528,17 @@ public class AdminDashboardView {
         return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
     }
 
+    private String formatRemainingDays(BorrowedBookSnapshot snapshot) {
+        long days = snapshot.getDaysRemaining();
+        if (days > 0) {
+            return days + " ngày";
+        }
+        if (days == 0) {
+            return "Hạn hôm nay";
+        }
+        return "Trễ " + Math.abs(days) + " ngày";
+    }
+
     private void refreshAllTables() {
         refreshBooks();
         refreshUsers();
@@ -527,14 +587,27 @@ public class AdminDashboardView {
     }
 
     private void refreshUsers() {
+        refreshBorrowSummaries();
         List<User> users = libraryService.getAllUsers();
         masterUsers.setAll(users);
+        userTable.refresh();
     }
 
     private void refreshLoans() {
         List<Loan> loans = libraryService.getAllLoans();
         masterLoans.setAll(loans);
         applyLoanFilters();
+    }
+
+    private void refreshBorrowSummaries() {
+        List<BorrowedBookSnapshot> snapshots = libraryService.getAllBorrowedBooks();
+        borrowSummaries.setAll(snapshots);
+        activeLoanCountByUser = snapshots.stream()
+                .collect(Collectors.groupingBy(BorrowedBookSnapshot::getUserId, Collectors.counting()));
+        if (borrowSummaryTotalLabel != null) {
+            borrowSummaryTotalLabel.setText("Tổng phiếu đang hoạt động: " + snapshots.size());
+        }
+        userTable.refresh();
     }
 
     private void approveSelectedLoans() {

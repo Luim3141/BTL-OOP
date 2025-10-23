@@ -1,6 +1,7 @@
 package library.service;
 
 import library.model.Book;
+import library.model.BorrowedBookSnapshot;
 import library.model.Loan;
 import library.model.Reservation;
 import library.model.User;
@@ -57,6 +58,14 @@ public class LibraryService {
 
     public List<Loan> getLoansForUser(int userId) {
         return databaseManager.findLoansByUser(userId);
+    }
+
+    public List<BorrowedBookSnapshot> getBorrowedBooksForUser(int userId) {
+        return databaseManager.findBorrowedBooksForUser(userId);
+    }
+
+    public List<BorrowedBookSnapshot> getAllBorrowedBooks() {
+        return databaseManager.findAllBorrowedBooks();
     }
 
     public Loan borrowBook(int bookId, User user) {
