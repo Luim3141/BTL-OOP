@@ -34,7 +34,7 @@ public class ReturnBook extends JFrame {
         // --- Title label ---
         lblTitle = new JLabel("Return Book");
         lblTitle.setFont(font18);
-        lblTitle.setForeground(white);
+        lblTitle.setForeground(red);
         lblTitle.setIcon(new ImageIcon(getClass().getResource("/img/isue.jpg")));
         lblTitle.setBounds(20, 40, 240, 60);
         add(lblTitle);

@@ -19,7 +19,7 @@ public class AccountManage extends JFrame {
 
         JLabel lblTitle = new JLabel("Account Management");
         lblTitle.setFont(new Font("Segoe UI", Font.BOLD, 24));
-        lblTitle.setForeground(white);
+        lblTitle.setForeground(red);
         lblTitle.setBounds(420, 70, 300, 40);
         add(lblTitle);
 

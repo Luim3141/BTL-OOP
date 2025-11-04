@@ -33,7 +33,7 @@ public class IssueBook extends JFrame {
         // ==== TITLE ====
         lblTitle = new JLabel("Issue Book");
         lblTitle.setFont(font24);
-        lblTitle.setForeground(white);
+        lblTitle.setForeground(red);
         lblTitle.setIcon(new ImageIcon(getClass().getResource("/img/isue.jpg")));
         lblTitle.setBounds(40, 60, 200, 70);
         add(lblTitle);

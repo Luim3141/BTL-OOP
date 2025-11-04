@@ -25,7 +25,7 @@ public class AddBook extends JFrame {
 
         JLabel lblTitle = new JLabel("Add Book");
         lblTitle.setFont(new Font("Segoe UI", Font.BOLD, 22));
-        lblTitle.setForeground(white);
+        lblTitle.setForeground(red);
         lblTitle.setBounds(60, 40, 300, 40);
         add(lblTitle);
 

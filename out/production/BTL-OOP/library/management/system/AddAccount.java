@@ -29,25 +29,25 @@ public class AddAccount extends JFrame {
 
         lblTitle = new JLabel("Add Account");
         lblTitle.setFont(new Font("Segoe UI", Font.BOLD, 28));
-        lblTitle.setForeground(white);
+        lblTitle.setForeground(red);
         lblTitle.setBounds(450, 100, 400, 40);
         add(lblTitle);
 
         JLabel lblUserID = new JLabel("User ID:");
         lblUserID.setFont(font18);
-        lblUserID.setForeground(white);
+        lblUserID.setForeground(Color.black);
         lblUserID.setBounds(300, 200, 200, 30);
         add(lblUserID);
 
         JLabel lblPassword = new JLabel("Password:");
         lblPassword.setFont(font18);
-        lblPassword.setForeground(white);
+        lblPassword.setForeground(Color.black);
         lblPassword.setBounds(300, 260, 200, 30);
         add(lblPassword);
 
         JLabel lblRole = new JLabel("Role:");
         lblRole.setFont(font18);
-        lblRole.setForeground(white);
+        lblRole.setForeground(Color.black);
         lblRole.setBounds(300, 320, 200, 30);
         add(lblRole);
 

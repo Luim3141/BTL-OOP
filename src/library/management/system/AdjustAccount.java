@@ -23,7 +23,7 @@ public class AdjustAccount extends JFrame {
 
         JLabel lblTitle = new JLabel("Adjust Account");
         lblTitle.setFont(new Font("Segoe UI", Font.BOLD, 24));
-        lblTitle.setForeground(white);
+        lblTitle.setForeground(red);
         lblTitle.setBounds(420, 60, 300, 40);
         add(lblTitle);
 
@@ -35,7 +35,7 @@ public class AdjustAccount extends JFrame {
         int y = 180;
         for (JLabel lbl : labels) {
             lbl.setFont(font18);
-            lbl.setForeground(white);
+            lbl.setForeground(Color.black);
             lbl.setBounds(280, y, 150, 40);
             add(lbl);
             y += 70;
