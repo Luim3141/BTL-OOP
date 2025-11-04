@@ -29,13 +29,13 @@ public class SignUp extends JFrame {
 
         JLabel lblUser = new JLabel("User ID");
         lblUser.setFont(font18);
-        lblUser.setForeground(white);
+        lblUser.setForeground(Color.blue);
         lblUser.setBounds(470, 330, 100, 30);
         add(lblUser);
 
         JLabel lblPass = new JLabel("Password");
         lblPass.setFont(font18);
-        lblPass.setForeground(white);
+        lblPass.setForeground(Color.blue);
         lblPass.setBounds(470, 400, 120, 30);
         add(lblPass);
 
