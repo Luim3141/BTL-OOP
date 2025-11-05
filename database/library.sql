@@ -43,7 +43,7 @@ CREATE TABLE `book` (
 
 LOCK TABLES `book` WRITE;
 /*!40000 ALTER TABLE `book` DISABLE KEYS */;
-INSERT INTO `book` VALUES ('A1','Genade','Re','Ear','10000','2009','Issued','02/11/2025','04/11/2025',1),('B1','Reverend','Zhi','Gu','1000','2020','Issued','02/11/2025','04/2/2026',2),('C3','haha','Hehe','Hoho','11','2000','Issued','02/11/2025','',3),('D4','shds','sdfs','323','232','231','NotIssued',NULL,NULL,NULL),('E5','hehi','test','tut','123','2004','Issued',NULL,NULL,4);
+INSERT INTO `book` VALUES ('A1','Genade','Re','Ear','10000','2009','NotIssued',NULL,NULL,NULL),('B1','Reverend','Zhi','Gu','1000','2020','Issued','02/11/2025','04/2/2026',2),('C3','haha','Hehe','Hoho','11','2000','Issued','02/11/2025','',3),('D4','shds','sdfs','323','232','231','NotIssued',NULL,NULL,NULL),('E5','hehi','test','tut','123','2004','Issued',NULL,NULL,4);
 /*!40000 ALTER TABLE `book` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -85,8 +85,10 @@ CREATE TABLE `request` (
   `book_name` varchar(255) DEFAULT NULL,
   `student_id` varchar(20) DEFAULT NULL,
   `student_name` varchar(255) DEFAULT NULL,
+  `issue_date` varchar(20) DEFAULT NULL,
+  `due_date` varchar(20) DEFAULT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -95,6 +97,7 @@ CREATE TABLE `request` (
 
 LOCK TABLES `request` WRITE;
 /*!40000 ALTER TABLE `request` DISABLE KEYS */;
+INSERT INTO `request` VALUES (4,'a1','Genade','2','Dai','06/11/2025','01/01/2025'),(5,'D4','shds','1','Hiep','06/11/2025','01/01/2025');
 /*!40000 ALTER TABLE `request` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -139,4 +142,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2025-11-05 10:37:29
+-- Dump completed on 2025-11-06  0:46:10
