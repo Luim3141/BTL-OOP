@@ -3,7 +3,8 @@ import java.awt.*;
 import java.sql.*;
 
 public class AdjustAccount extends JFrame {
-    private JTextField txtUserId, txtPassword, txtRole;
+    private JTextField txtUserId, txtPassword;
+    private JComboBox<String> comboRole;
     private JButton btnSearch, btnUpdate, btnClose;
     private JLabel lblBg;
     Connection c = Connect.ConnectToDB();
@@ -43,16 +44,19 @@ public class AdjustAccount extends JFrame {
 
         txtUserId = new JTextField();
         txtPassword = new JTextField();
-        txtRole = new JTextField();
+        comboRole = new JComboBox<>(new String[]{"client", "admin"}); // 🔒 chỉ cho chọn 2 role
 
-        JTextField[] fields = {txtUserId, txtPassword, txtRole};
-        y = 180;
-        for (JTextField f : fields) {
-            f.setFont(font18);
-            f.setBounds(420, y, 350, 40);
-            add(f);
-            y += 70;
-        }
+        txtUserId.setFont(font18);
+        txtUserId.setBounds(420, 180, 350, 40);
+        add(txtUserId);
+
+        txtPassword.setFont(font18);
+        txtPassword.setBounds(420, 250, 350, 40);
+        add(txtPassword);
+
+        comboRole.setFont(font18);
+        comboRole.setBounds(420, 320, 350, 40);
+        add(comboRole);
 
         btnSearch = new JButton("Search");
         btnSearch.setFont(font18);
@@ -87,7 +91,7 @@ public class AdjustAccount extends JFrame {
     private void searchAccount() {
         canEdit = false;
         txtPassword.setText("");
-        txtRole.setText("");
+        comboRole.setSelectedIndex(0);
 
         try (PreparedStatement pst = c.prepareStatement("SELECT * FROM library.login WHERE userid=?")) {
             pst.setString(1, txtUserId.getText());
@@ -105,7 +109,7 @@ public class AdjustAccount extends JFrame {
             }
 
             txtPassword.setText(rs.getString("password"));
-            txtRole.setText(role);
+            comboRole.setSelectedItem(role); // 🟢 tự động chọn role trong combobox
             canEdit = true;
 
         } catch (SQLException ex) {
@@ -122,13 +126,13 @@ public class AdjustAccount extends JFrame {
         try (PreparedStatement pst = c.prepareStatement(
                 "UPDATE library.login SET password=?, role=? WHERE userid=?")) {
             pst.setString(1, txtPassword.getText());
-            pst.setString(2, txtRole.getText());
+            pst.setString(2, comboRole.getSelectedItem().toString()); // 🟢 lấy role từ combobox
             pst.setString(3, txtUserId.getText());
 
             pst.executeUpdate();
             JOptionPane.showMessageDialog(this, "✅ Account updated successfully!");
             txtPassword.setText("");
-            txtRole.setText("");
+            comboRole.setSelectedIndex(0);
             canEdit = false;
         } catch (SQLException ex) {
             JOptionPane.showMessageDialog(this, "Error updating: " + ex.getMessage());
