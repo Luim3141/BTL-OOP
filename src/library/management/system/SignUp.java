@@ -4,8 +4,9 @@ import java.awt.event.*;
 import java.sql.*;
 
 public class SignUp extends JFrame {
-    private JTextField txtUser, txtPassword;
-    private JButton btnSignUp, btnClose;
+    private JTextField txtUser;
+    private JPasswordField txtPassword; // Dùng JPasswordField thay vì JTextField
+    private JButton btnSignUp, btnClose, btnShowPassword;
     private JLabel lblBg;
     private Connection c = Connect.ConnectToDB();
 
@@ -44,10 +45,16 @@ public class SignUp extends JFrame {
         txtUser.setBounds(580, 325, 250, 40);
         add(txtUser);
 
-        txtPassword = new JTextField();
+        txtPassword = new JPasswordField();
         txtPassword.setFont(font18);
         txtPassword.setBounds(580, 395, 250, 40);
         add(txtPassword);
+
+        // 👁 Nút show/hide password
+        btnShowPassword = new JButton("Show");
+        btnShowPassword.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+        btnShowPassword.setBounds(840, 395, 80, 40);
+        add(btnShowPassword);
 
         btnSignUp = new JButton("Sign Up");
         btnSignUp.setFont(font18);
@@ -64,20 +71,45 @@ public class SignUp extends JFrame {
         lblBg.setBounds(0, 0, 1140, 770);
         add(lblBg);
 
+        // 🎯 Sự kiện nút
         btnClose.addActionListener(e -> dispose());
         btnSignUp.addActionListener(e -> register());
+
+        // 👁 Toggle hiển thị mật khẩu
+        btnShowPassword.addActionListener(e -> {
+            if (btnShowPassword.getText().equals("Show")) {
+                txtPassword.setEchoChar((char) 0); // hiện mật khẩu
+                btnShowPassword.setText("Hide");
+            } else {
+                txtPassword.setEchoChar('*'); // ẩn mật khẩu
+                btnShowPassword.setText("Show");
+            }
+        });
     }
 
     private void register() {
-        try (PreparedStatement pst = c.prepareStatement("INSERT INTO library.login(userid, password, role) VALUES (?, ?, 'client')")) {
-            pst.setString(1, txtUser.getText());
-            pst.setString(2, txtPassword.getText());
+        String username = txtUser.getText().trim();
+        String password = new String(txtPassword.getPassword()).trim();
+
+        // ⚠️ Kiểm tra người dùng có nhập đầy đủ không
+        if (username.isEmpty() || password.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "⚠️ Please fill in both username and password.");
+            return;
+        }
+
+        try (PreparedStatement pst = c.prepareStatement(
+                "INSERT INTO library.login(userid, password, role) VALUES (?, ?, 'client')")) {
+
+            pst.setString(1, username);
+            pst.setString(2, password);
             pst.executeUpdate();
-            JOptionPane.showMessageDialog(this, "Account created successfully!");
+
+            JOptionPane.showMessageDialog(this, "✅ Account created successfully!");
             dispose();
             new SignIn().setVisible(true);
+
         } catch (SQLException ex) {
-            JOptionPane.showMessageDialog(this, "Error: " + ex.getMessage());
+            JOptionPane.showMessageDialog(this, "❌ Error: " + ex.getMessage());
         }
     }
 
